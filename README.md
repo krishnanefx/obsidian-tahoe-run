@@ -1,6 +1,12 @@
 # Tahoe Run
 
-Run the code blocks in your notes and see the output right underneath, like a notebook. Python gets a live kernel with a debugger and a variables view, MATLAB runs in a session of your own MATLAB, and C, C++, Swift, JavaScript and twenty-odd other languages run with the tools you have installed. Python also runs on iPhone and iPad (beta).
+**Run the code in your notes, like a notebook.** Python gets a live kernel with a real debugger and a variables view, MATLAB runs in a session of your own MATLAB, and C, C++, Swift, JavaScript and twenty-odd other languages run with the tools you have installed. The output, plots included, appears right under the block. Python also runs on iPhone and iPad (beta).
+
+![Stepping through a breakpoint while the variables view updates](images/debugger-demo.png)
+
+- Click where a line's number is for a **breakpoint**, run, and **step** through the loop while the variables update.
+- `plt.show()` puts the **plot under the block**; `FuncAnimation` becomes a looping GIF.
+- *No module named 'cv2'?* The output offers to **install it** into the note's Python and runs the block again.
 
 ![A Python block with its output and plot](images/run.png)
 
@@ -14,8 +20,6 @@ Run the code blocks in your notes and see the output right underneath, like a no
 - **Packages:** when a block fails with *No module named 'cv2'*, the output offers to install `opencv-python` into the note's Python, then runs the block again.
 - **Jupyter:** export a note as a `.ipynb` notebook (with its outputs and plots), a `.py` script with `# %%` cells or a `.m` script with `%%` sections, and import notebooks and scripts as notes.
 - **Explain this error:** a model explains a failed block and suggests a fix you can apply.
-
-![Paused at a breakpoint, with the variables view](images/debugger.png)
 
 ## Languages
 
@@ -70,7 +74,10 @@ When a block fails, its output gets an **Explain** button: a model reads the cod
 - **Files outside your vault:** runs use temporary folders in your system's temp folder. *Choose Python… → New environment* creates it in `~/.virtualenvs`. The Apple Intelligence helper is kept in `~/Library/Caches/tahoe-run`. To list your Pythons, it looks in the usual places they're installed.
 - **No telemetry, ads or accounts.** Claude needs your own Anthropic API key, only if you choose it.
 
-## Works well with
+## More from Tahoe
+
+- **[Tahoe Math](https://github.com/krishnanefx/obsidian-tahoe-math):** a calculator in your notes; type an expression ending in `=` and the answer appears.
+- **[Tahoe](https://github.com/krishnanefx/obsidian-tahoe-theme):** a clean, Mac-like theme.
 
 Tahoe Run works on its own. With the Tahoe Code plugin (not in the community directory yet), Python blocks also get suggestions from the running kernel.
 

@@ -1567,7 +1567,7 @@ class TahoeRunSettingTab extends PluginSettingTab {
 
     containerEl.createEl("p", {
       cls: "setting-item-description tahoe-run-warning",
-      text: "Code runs on this Mac with your user account’s permissions. Only run code you trust.",
+      text: "Code runs on this computer with your user account’s permissions. Only run code you trust.",
     });
 
     new Setting(containerEl).setName("Running").setHeading();
