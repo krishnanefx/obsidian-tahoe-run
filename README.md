@@ -74,12 +74,27 @@ When a block fails, its output gets an **Explain** button: a model reads the cod
 - **Files outside your vault:** runs use temporary folders in your system's temp folder. *Choose Python… → New environment* creates it in `~/.virtualenvs`. The Apple Intelligence helper is kept in `~/Library/Caches/tahoe-run`. To list your Pythons, it looks in the usual places they're installed.
 - **No telemetry, ads or accounts.** Claude needs your own Anthropic API key, only if you choose it.
 
-## More from Tahoe
+<!-- tahoe-family -->
+## The Tahoe family
 
-- **[Tahoe Math](https://github.com/krishnanefx/obsidian-tahoe-math):** a calculator in your notes; type an expression ending in `=` and the answer appears.
-- **[Tahoe](https://github.com/krishnanefx/obsidian-tahoe-theme):** a clean, Mac-like theme.
+Tahoe is a set of plugins and a theme that work on their own and fit together.
 
-Tahoe Run works on its own. With the Tahoe Code plugin (not in the community directory yet), Python blocks also get suggestions from the running kernel.
+| | | |
+| --- | --- | --- |
+| **Tahoe Run** | Run the code in your notes, like a notebook: Python with a debugger and variables view, MATLAB, and ~25 other languages. | this one |
+| **[Tahoe Math](https://github.com/krishnanefx/obsidian-tahoe-math)** | A calculator in your notes: type an expression ending in `=` and the answer appears. | in the community directory |
+| **[Tahoe](https://github.com/krishnanefx/obsidian-tahoe-theme)** | A clean, Mac-like theme, in light and dark. | in the community directory |
+| **Tahoe Code** | An IDE in your code blocks: suggestions, checking as you type, quick fixes, go to definition, formatting and AI edits. | coming soon |
+| **Tahoe Glass** | Real refraction for the Tahoe theme's glass, and System Settings–style settings pages. | coming soon |
+| **Tahoe Organize** | Keep a growing vault tidy: inbox triage, Smart Folders, coloured tags, link suggestions, vault health and text from images. | coming soon |
+| **Tahoe Intelligence** | On-device AI for your notes: related notes, distilling permanent notes, Writing Tools and more. | coming soon |
+
+**Better together**
+
+- **With Tahoe Code (coming soon):** Python and MATLAB blocks get suggestions from the running session (a data frame's real columns, a struct's fields), and ⌘I on an equation writes it as a function that Tahoe Run then runs and checks.
+- **With [Tahoe Math](https://github.com/krishnanefx/obsidian-tahoe-math):** quick sums stay in the prose around your code, with no block needed.
+- **With [Tahoe](https://github.com/krishnanefx/obsidian-tahoe-theme):** Tahoe Run uses Obsidian's own colours and controls, so its capsules and output cards look native in Tahoe (or any theme).
+<!-- /tahoe-family -->
 
 ## Credits
 
