@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tahoe-run",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Run code blocks in Obsidian: a Python notebook with a debugger and variables view, MATLAB, C/C++, Swift and more, and Python on iPhone and iPad.",
   "private": true,
   "license": "MIT",

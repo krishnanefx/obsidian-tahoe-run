@@ -75,7 +75,20 @@ function valueHover(plugin) {
           if (meta) head.appendChild(document.createElement("span")).textContent = meta;
           const pre = dom.appendChild(document.createElement("pre"));
           pre.textContent = value.repr || "";
-          return { dom };
+          return {
+            dom,
+            // Classes for the styles (instead of :has() selectors): the card
+            // holding a value, its section, and, if nothing in it can be
+            // clicked, letting clicks through to the code underneath.
+            mount() {
+              const tip = dom.closest(".cm-tooltip");
+              const section = dom.parentElement;
+              if (section && section.classList.contains("cm-tooltip-section")) section.classList.add("tahoe-run-value-section");
+              if (!tip) return;
+              tip.classList.add("tahoe-run-value-tooltip");
+              if (!tip.querySelector("button, a, input, .cm-diagnosticAction")) tip.classList.add("tahoe-run-click-through");
+            },
+          };
         },
       };
     },

@@ -85,7 +85,9 @@ const refreshEffect = StateEffect.define();
 // Gives the closing line room for the Run capsules (see styles.css).
 const RUNNABLE_END_LINE = Decoration.line({ class: "tahoe-run-block-end" });
 
-class RunWidget extends WidgetType {
+// Live Preview: the Run capsule sits inside the block's closing fence line
+// (an inline widget, so nothing clips it), and the output card below the block.
+class BlockWidget extends WidgetType {
   constructor(plugin, key, ordinal, lang) {
     super();
     this.plugin = plugin;
@@ -98,27 +100,21 @@ class RunWidget extends WidgetType {
     return other.key === this.key && other.lang === this.lang;
   }
 
-  toDOM(view) {
-    const dom = document.createElement("div");
-    dom.className = "tahoe-run-lp";
-    const getCode = () => {
-      const blocks = findCodeBlocks(view.state.doc.toString().split("\n"));
-      const block = blocks[this.ordinal];
-      return block ? block.code : "";
-    };
-    const sourcePath = () => {
-      const info = view.state.field(editorInfoField, false);
-      return info && info.file ? info.file.path : "";
-    };
-    this.plugin.mountBlockUi(dom, dom, {
+  block(view) {
+    return {
       key: this.key,
       lang: this.lang,
       ordinal: this.ordinal,
-      getCode,
-      sourcePath,
+      getCode: () => {
+        const block = findCodeBlocks(view.state.doc.toString().split("\n"))[this.ordinal];
+        return block ? block.code : "";
+      },
+      sourcePath: () => {
+        const info = view.state.field(editorInfoField, false);
+        return info && info.file ? info.file.path : "";
+      },
       onResize: () => view.requestMeasure(),
-    });
-    return dom;
+    };
   }
 
   destroy(dom) {
@@ -127,6 +123,24 @@ class RunWidget extends WidgetType {
 
   ignoreEvent() {
     return true;
+  }
+}
+
+class ActionsWidget extends BlockWidget {
+  toDOM(view) {
+    const dom = document.createElement("span");
+    dom.className = "tahoe-run-actions-host";
+    dom.tahoeCleanup = this.plugin.mountActions(dom, this.block(view));
+    return dom;
+  }
+}
+
+class RunWidget extends BlockWidget {
+  toDOM(view) {
+    const dom = document.createElement("div");
+    dom.className = "tahoe-run-lp";
+    dom.tahoeCleanup = this.plugin.mountCard(dom, this.block(view));
+    return dom;
   }
 }
 
@@ -140,8 +154,10 @@ function buildDecorations(plugin, state) {
   blocks.forEach((block, ordinal) => {
     if (!plugin.resolve(block.lang)) return;
     const endLine = doc.line(block.end + 1);
+    const key = `${file.path}::${ordinal}`;
     builder.add(endLine.from, endLine.from, RUNNABLE_END_LINE);
-    builder.add(endLine.to, endLine.to, Decoration.widget({ widget: new RunWidget(plugin, `${file.path}::${ordinal}`, ordinal, block.lang), block: true, side: 1 }));
+    builder.add(endLine.to, endLine.to, Decoration.widget({ widget: new ActionsWidget(plugin, key, ordinal, block.lang), side: 1 }));
+    builder.add(endLine.to, endLine.to, Decoration.widget({ widget: new RunWidget(plugin, key, ordinal, block.lang), block: true, side: 1 }));
   });
   return builder.finish();
 }
@@ -544,6 +560,7 @@ export default class TahoeRunPlugin extends Plugin {
       const output = document.createElement("div");
       pre.insertAdjacentElement("afterend", output);
       const child = new MarkdownRenderChild(output);
+      pre.addClass("tahoe-run-pre");
       this.mountBlockUi(pre, output, { key, lang, ordinal, getCode: () => text, sourcePath: () => ctx.sourcePath });
       child.onunload = () => output.tahoeCleanup && output.tahoeCleanup();
       ctx.addChild(child);
@@ -552,7 +569,14 @@ export default class TahoeRunPlugin extends Plugin {
 
   /* ---------- shared block UI ---------- */
 
+  // Reading view: the capsule in the <pre>, the card after it.
   mountBlockUi(buttonHost, outputHost, block) {
+    const cleanups = [this.mountActions(buttonHost, block), this.mountCard(outputHost, block)];
+    outputHost.tahoeCleanup = () => cleanups.forEach((c) => c());
+  }
+
+  // The ▶ Run capsule (and the complexity button) for a block. Returns its cleanup.
+  mountActions(host, block) {
     const output = this.outputFor(block.key);
     const actions = document.createElement("div");
     actions.className = "tahoe-run-actions";
@@ -586,26 +610,35 @@ export default class TahoeRunPlugin extends Plugin {
       if (output.status === "running") this.stop(output);
       else this.run({ key: block.key, lang: block.lang, ordinal: block.ordinal, code: block.getCode(), sourcePath: block.sourcePath() });
     });
-    buttonHost.appendChild(actions);
-
-    const card = createCard(this, output, block);
-    outputHost.appendChild(card.el);
+    host.appendChild(actions);
 
     const unsubscribe = output.subscribe((o) => {
       const running = o.status === "running";
       button.classList.toggle("is-running", running);
+      actions.classList.toggle("is-running", running);
       setIcon(icon, running ? "square" : "play");
       label.textContent = running ? "Stop" : "Run";
       button.setAttribute("aria-label", running ? "Stop" : "Run code");
       measure.toggle(!running && measurable);
+    });
+    return () => {
+      unsubscribe();
+      actions.remove();
+    };
+  }
+
+  // The output card for a block. Returns its cleanup.
+  mountCard(host, block) {
+    const output = this.outputFor(block.key);
+    const card = createCard(this, output, block);
+    host.appendChild(card.el);
+    const unsubscribe = output.subscribe((o) => {
       card.render(o);
       if (block.onResize) block.onResize();
     });
-
-    outputHost.tahoeCleanup = () => {
+    return () => {
       unsubscribe();
       card.destroy();
-      actions.remove();
       card.el.remove();
     };
   }

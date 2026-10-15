@@ -72,6 +72,7 @@ When a block fails, its output gets an **Explain** button: a model reads the cod
   - *Installing a missing package* runs `pip`, which downloads from PyPI, after you confirm.
   - *Explain with Claude* sends the failing block's code and output to Anthropic's API (api.anthropic.com) with your API key. Apple Intelligence runs on your Mac, and Ollama on your own computer (localhost), so with those your code doesn't leave it.
 - **Files outside your vault:** runs use temporary folders in your system's temp folder. *Choose Python… → New environment* creates it in `~/.virtualenvs`. The Apple Intelligence helper is kept in `~/Library/Caches/tahoe-run`. To list your Pythons, it looks in the usual places they're installed.
+- **Clipboard:** it writes to the clipboard only when you press a Copy button (an output, a sheet as Markdown or CSV, or a prompt for a chat app). It never reads the clipboard.
 - **No telemetry, ads or accounts.** Claude needs your own Anthropic API key, only if you choose it.
 
 <!-- tahoe-family -->

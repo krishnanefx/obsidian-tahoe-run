@@ -87,7 +87,7 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-button-icon {
   color: var(--text-accent);
 }
 
-.markdown-rendered pre:has(> .tahoe-run-actions) {
+.markdown-rendered pre.tahoe-run-pre {
   position: relative;
   padding-bottom: 2.6em;
 }
@@ -97,24 +97,22 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-button-icon {
   bottom: 9px;
 }
 
-/* Live Preview: the widget sits under the closing fence; lift the capsule into the block */
+/* Live Preview: the output card is a widget under the closing fence */
 .markdown-source-view.mod-cm6 .cm-content > .tahoe-run-lp {
   position: relative;
   margin: 0;
-  /* Obsidian paints widgets with `contain: paint !important`, which would clip
-     the capsule we lift into the code block above. */
-  contain: none !important;
-  overflow: visible;
 }
 
-/* The closing fence line of a runnable block grows to hold the capsules. */
+/* The closing fence line of a runnable block grows to hold the capsule, which
+   sits inside it (bottom right, as in Reading view). */
 .markdown-source-view.mod-cm6 .cm-line.tahoe-run-block-end {
-  padding-bottom: 38px !important;
+  position: relative;
+  padding-bottom: 38px;
 }
 
-.tahoe-run-lp > .tahoe-run-actions {
+.markdown-source-view.mod-cm6 .cm-line.tahoe-run-block-end .tahoe-run-actions {
   right: 10px;
-  top: -36px;
+  bottom: 9px;
 }
 
 body.tahoe-run-hover .tahoe-run-actions {
@@ -123,10 +121,10 @@ body.tahoe-run-hover .tahoe-run-actions {
 }
 
 body.tahoe-run-hover .markdown-rendered pre:hover > .tahoe-run-actions,
-body.tahoe-run-hover .tahoe-run-actions:has(.is-running),
+body.tahoe-run-hover .tahoe-run-actions.is-running,
 body.tahoe-run-hover .tahoe-run-actions:focus-within,
-body.tahoe-run-hover .tahoe-run-lp:hover > .tahoe-run-actions,
-body.tahoe-run-hover .cm-line.HyperMD-codeblock:hover ~ .tahoe-run-lp > .tahoe-run-actions {
+body.tahoe-run-hover .cm-line.tahoe-run-block-end:hover .tahoe-run-actions,
+body.tahoe-run-hover .cm-line.HyperMD-codeblock:hover ~ .cm-line.tahoe-run-block-end .tahoe-run-actions {
   opacity: 1;
 }
 
@@ -553,11 +551,11 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
 }
 
 /* Beat Obsidian's own .setting-item spacing and dividers inside the card */
-.tahoe-run-form > .setting-item.setting-item {
+.tahoe-run-form > .setting-item.setting-item.setting-item {
   align-items: center;
   margin: 0;
-  padding: 10px 0 !important;
-  border: none !important;
+  padding: 10px 0;
+  border: none;
 }
 
 .tahoe-run-form > .setting-item + .setting-item {
@@ -937,13 +935,13 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
 }
 
 /* Hover a name: its value in the running session */
-.cm-tooltip.cm-tooltip-hover:has(.tahoe-run-value) {
+.cm-tooltip.cm-tooltip-hover.tahoe-run-value-tooltip {
   border-radius: var(--tahoe-radius-menu, 10px);
   overflow: hidden;
 }
 
-.cm-tooltip-section:has(> .tahoe-run-value) + .cm-tooltip-section,
-.cm-tooltip-section + .cm-tooltip-section:has(> .tahoe-run-value) {
+.cm-tooltip-section.tahoe-run-value-section + .cm-tooltip-section,
+.cm-tooltip-section + .cm-tooltip-section.tahoe-run-value-section {
   border-top: 1px solid var(--background-modifier-border);
 }
 
@@ -1016,10 +1014,9 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
   opacity: 0.85;
 }
 
-/* Hover cards are for reading: clicks go through them to the code underneath
-   (unless a card has a button in it). */
-.cm-tooltip.cm-tooltip-hover:not(:has(button, a, input, .cm-diagnosticAction)),
-.cm-tooltip:has(> .tahoe-code-signature) {
+/* A value card is for reading: clicks go through it to the code underneath
+   (unless something in the card can be clicked; see editor.js). */
+.cm-tooltip.cm-tooltip-hover.tahoe-run-click-through {
   pointer-events: none;
 }
 
@@ -1088,7 +1085,7 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
   width: 30px;
   min-width: 30px;
   height: 24px;
-  padding: 0 !important;
+  padding: 0;
   border: none;
   border-radius: 6px;
   box-shadow: none;
@@ -1115,18 +1112,18 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
 }
 
 /* The line number under a breakpoint's tag (Tahoe Code's) gives way to the tag's own */
-.markdown-source-view.mod-cm6 .cm-line.tahoe-run-bp::before {
-  color: transparent !important;
+.markdown-source-view.mod-cm6 .cm-content .cm-line.tahoe-run-bp::before {
+  color: transparent;
 }
 
 /* Paused: a still green dot, not the spinner */
-.tahoe-run-output.is-paused .tahoe-run-status {
+.tahoe-run-output.is-paused .tahoe-run-status.tahoe-run-status {
   width: 9px;
   height: 9px;
-  border: none !important;
+  border: none;
   border-radius: 50%;
-  background: var(--color-green, #34c759) !important;
-  animation: none !important;
+  background: var(--color-green, #34c759);
+  animation: none;
 }
 
 .tahoe-run-wide-input {
