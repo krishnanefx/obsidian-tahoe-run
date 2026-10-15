@@ -1,0 +1,1134 @@
+/* Tahoe Run — uses Tahoe's glass tokens when the theme is active, with fallbacks.
+   Capsules follow the Liquid Glass level (Clear ↔ Tinted), take Tahoe Glass's
+   refraction and pointer highlight, and step back in an inactive window. */
+
+.tahoe-run-actions {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+}
+
+.tahoe-run-button {
+  --tahoe-run-glass: var(--tahoe-control-tint, color-mix(in srgb, var(--background-primary) 70%, transparent));
+  --tahoe-sheen: radial-gradient(
+    90px circle at var(--tahoe-mx, 50%) var(--tahoe-my, -100%),
+    rgb(var(--tahoe-glow-color, 255 255 255) / calc(var(--tahoe-glow-alpha, 0.6) * var(--tahoe-glow, 0))),
+    transparent 70%
+  );
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 11px 0 9px;
+  border: none;
+  border-radius: 999px;
+  font-family: var(--font-interface);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-normal);
+  background: var(--tahoe-sheen), linear-gradient(to bottom, rgb(255 255 255 / 0.12), transparent 60%), var(--tahoe-run-glass);
+  -webkit-backdrop-filter: var(--tahoe-lens,) blur(var(--tahoe-control-blur, 10px)) saturate(var(--tahoe-saturate, 1.8)) brightness(1.04);
+  backdrop-filter: var(--tahoe-lens,) blur(var(--tahoe-control-blur, 10px)) saturate(var(--tahoe-saturate, 1.8)) brightness(1.04);
+  box-shadow: var(--tahoe-glass-shadow, 0 0 0 0.5px var(--background-modifier-border), 0 2px 8px rgb(0 0 0 / 0.1));
+  cursor: pointer;
+  transition:
+    transform 0.3s var(--tahoe-spring, cubic-bezier(0.32, 0.72, 0, 1)),
+    background-color 0.15s,
+    --tahoe-glow 0.4s var(--tahoe-ease, ease);
+}
+
+.tahoe-run-button:hover {
+  --tahoe-run-glass: var(--tahoe-glass-hover, color-mix(in srgb, var(--background-primary) 85%, transparent));
+}
+
+/* Inactive window: the colored glyphs step back, like the toolbar's */
+body:not(.is-mobile):not(.is-focused) .tahoe-run-button {
+  color: var(--text-muted);
+}
+
+body:not(.is-mobile):not(.is-focused) .tahoe-run-button-icon {
+  color: var(--text-faint);
+  filter: grayscale(1);
+}
+
+.tahoe-run-button:active {
+  transform: scale(1.06);
+}
+
+.tahoe-run-button-icon {
+  display: inline-flex;
+  color: var(--color-green, #34c759);
+  --icon-size: 12px;
+  --icon-stroke: 2.6px;
+}
+
+.tahoe-run-button-icon svg {
+  fill: currentColor;
+}
+
+.tahoe-run-button.is-running .tahoe-run-button-icon {
+  color: var(--color-red, #ff3b30);
+}
+
+/* Reading view: bottom-right of the block */
+.tahoe-run-button.mod-icon {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+  color: var(--text-muted);
+  --icon-size: 14px;
+  --icon-stroke: 2.2px;
+}
+
+.tahoe-run-button.mod-icon:hover {
+  color: var(--text-accent);
+}
+
+.markdown-rendered pre:has(> .tahoe-run-actions) {
+  position: relative;
+  padding-bottom: 2.6em;
+}
+
+.markdown-rendered pre > .tahoe-run-actions {
+  right: 10px;
+  bottom: 9px;
+}
+
+/* Live Preview: the widget sits under the closing fence; lift the capsule into the block */
+.markdown-source-view.mod-cm6 .cm-content > .tahoe-run-lp {
+  position: relative;
+  margin: 0;
+  /* Obsidian paints widgets with `contain: paint !important`, which would clip
+     the capsule we lift into the code block above. */
+  contain: none !important;
+  overflow: visible;
+}
+
+/* The closing fence line of a runnable block grows to hold the capsules. */
+.markdown-source-view.mod-cm6 .cm-line.tahoe-run-block-end {
+  padding-bottom: 38px !important;
+}
+
+.tahoe-run-lp > .tahoe-run-actions {
+  right: 10px;
+  top: -36px;
+}
+
+body.tahoe-run-hover .tahoe-run-actions {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+body.tahoe-run-hover .markdown-rendered pre:hover > .tahoe-run-actions,
+body.tahoe-run-hover .tahoe-run-actions:has(.is-running),
+body.tahoe-run-hover .tahoe-run-actions:focus-within,
+body.tahoe-run-hover .tahoe-run-lp:hover > .tahoe-run-actions,
+body.tahoe-run-hover .cm-line.HyperMD-codeblock:hover ~ .tahoe-run-lp > .tahoe-run-actions {
+  opacity: 1;
+}
+
+/* Console card */
+.tahoe-run-output {
+  margin: 8px 0 18px;
+  border-radius: var(--tahoe-radius-card, 12px);
+  background: var(--code-background, var(--background-primary-alt));
+  box-shadow: inset 0 0 0 0.5px var(--tahoe-separator, var(--background-modifier-border));
+  font-family: var(--font-interface);
+  /* In Live Preview the card sits inside CodeMirror, which keeps line breaks. */
+  white-space: normal;
+  overflow: hidden;
+  animation: tahoe-run-in 0.28s var(--tahoe-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.tahoe-run-output[data-status="idle"] {
+  display: none;
+}
+
+.tahoe-run-output-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 6px 4px 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tahoe-run-output:not(.is-empty) .tahoe-run-output-header {
+  box-shadow: inset 0 -0.5px 0 var(--tahoe-separator, var(--background-modifier-border));
+}
+
+.tahoe-run-status {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.tahoe-run-output[data-status="success"] .tahoe-run-status {
+  background: var(--color-green, #34c759);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-green, #34c759) 22%, transparent);
+}
+
+.tahoe-run-output[data-status="error"] .tahoe-run-status,
+.tahoe-run-output[data-status="timeout"] .tahoe-run-status {
+  background: var(--color-red, #ff3b30);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-red, #ff3b30) 22%, transparent);
+}
+
+.tahoe-run-output[data-status="stopped"] .tahoe-run-status {
+  background: var(--color-orange, #ff9500);
+}
+
+.tahoe-run-output[data-status="running"] .tahoe-run-status {
+  width: 12px;
+  height: 12px;
+  background: none;
+  border: 2px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
+  border-top-color: var(--interactive-accent);
+  animation: tahoe-run-spin 0.8s linear infinite;
+}
+
+.tahoe-run-spacer {
+  flex: 1;
+}
+
+.tahoe-run-action.clickable-icon {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  --icon-size: 14px;
+}
+
+.tahoe-run-action.clickable-icon:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.tahoe-run-output-body {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px 14px 12px;
+  background: transparent;
+  font-family: var(--font-monospace);
+  font-size: 0.82em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-normal);
+  user-select: text;
+}
+
+.tahoe-run-output.is-empty .tahoe-run-output-body {
+  display: none;
+}
+
+.tahoe-run-err {
+  color: var(--color-red, #ff3b30);
+}
+
+.tahoe-run-info {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.tahoe-run-figures:empty {
+  display: none;
+}
+
+.tahoe-run-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.tahoe-run-figures img {
+  max-width: 100%;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 0 0 0.5px var(--background-modifier-border);
+}
+
+/* Kernel result (value of the last expression) */
+.tahoe-run-result {
+  display: block;
+  margin-top: 2px;
+  padding-inline-start: 10px;
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--interactive-accent) 70%, transparent);
+  color: var(--text-normal);
+}
+
+/* Explain */
+/* Apple Intelligence's colors */
+.tahoe-run-output {
+  --tahoe-run-ai: linear-gradient(135deg, #0a84ff 0%, #bf5af2 40%, #ff375f 72%, #ff9f0a 100%);
+}
+
+.tahoe-run-explain-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 11px 0 9px;
+  border: none;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-normal);
+  background: linear-gradient(to bottom, rgb(255 255 255 / 0.12), transparent 60%), var(--tahoe-control-tint, var(--background-primary));
+  -webkit-backdrop-filter: blur(var(--tahoe-control-blur, 10px)) saturate(var(--tahoe-saturate, 1.8));
+  backdrop-filter: blur(var(--tahoe-control-blur, 10px)) saturate(var(--tahoe-saturate, 1.8));
+  box-shadow: var(--tahoe-glass-shadow, 0 0 0 0.5px var(--background-modifier-border), 0 1px 3px rgb(0 0 0 / 0.1));
+  cursor: pointer;
+  transition: transform 0.3s var(--tahoe-spring, ease), background-color 0.15s;
+}
+
+.tahoe-run-explain-button:hover {
+  background: linear-gradient(to bottom, rgb(255 255 255 / 0.16), transparent 60%), var(--tahoe-glass-hover, var(--background-primary));
+}
+
+.tahoe-run-explain-button:active {
+  transform: scale(1.06);
+}
+
+/* The sparkle is painted with the gradient through its own outline */
+.tahoe-run-ai-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  background: var(--tahoe-run-ai);
+  -webkit-mask: var(--tahoe-run-ai-glyph) center / contain no-repeat;
+  mask: var(--tahoe-run-ai-glyph) center / contain no-repeat;
+}
+
+.tahoe-run-ai-icon > svg {
+  display: none;
+}
+
+.tahoe-run-explanation-icon.tahoe-run-ai-icon {
+  width: 14px;
+  height: 14px;
+}
+
+body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
+  background: var(--text-faint);
+}
+
+.tahoe-run-explanation {
+  position: relative;
+  margin: 0 10px 10px;
+  border-radius: 10px;
+  background: var(--background-primary);
+  box-shadow: inset 0 0 0 0.5px var(--tahoe-separator, var(--background-modifier-border));
+  overflow: hidden;
+}
+
+/* While the model is thinking, an Apple Intelligence glow runs round the edge */
+@property --tahoe-run-ai-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.tahoe-run-explanation[data-status="loading"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 1.5px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(from var(--tahoe-run-ai-angle), #0a84ff, #bf5af2, #ff375f, #ff9f0a, #0a84ff);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: tahoe-run-ai-spin 2.4s linear infinite;
+}
+
+@keyframes tahoe-run-ai-spin {
+  to {
+    --tahoe-run-ai-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tahoe-run-explanation[data-status="loading"]::before {
+    animation: none;
+  }
+}
+
+.tahoe-run-explanation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 6px 4px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tahoe-run-explanation-icon {
+  display: inline-flex;
+  color: var(--interactive-accent);
+  --icon-size: 14px;
+}
+
+.tahoe-run-explanation[data-status="loading"] .tahoe-run-explanation-icon {
+  animation: tahoe-run-pulse 1.2s ease-in-out infinite;
+}
+
+.tahoe-run-explanation[data-status="error"] .tahoe-run-explanation-icon {
+  background: var(--color-red, #ff3b30);
+}
+
+.tahoe-run-explanation-body {
+  padding: 0 16px 6px;
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+.tahoe-run-explanation-body:empty {
+  display: none;
+}
+
+.tahoe-run-explanation-body > * {
+  margin-block: 0.45em;
+}
+
+.tahoe-run-explanation-body pre {
+  margin: 8px 0 10px;
+  white-space: pre-wrap;
+}
+
+.tahoe-run-explanation-body > p:empty {
+  display: none;
+}
+
+.tahoe-run-chip {
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.tahoe-run-chip:hover {
+  background: var(--tahoe-fill-2, var(--background-modifier-hover));
+}
+
+.tahoe-run-chip.mod-accent {
+  color: var(--text-on-accent);
+  background-color: var(--interactive-accent);
+  background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0));
+  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.35), 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+.tahoe-run-chip.is-on {
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+}
+
+/* Complexity chart */
+.tahoe-run-output.has-chart.is-empty .tahoe-run-output-header {
+  box-shadow: inset 0 -0.5px 0 var(--tahoe-separator, var(--background-modifier-border));
+}
+
+.tahoe-run-chart-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0 14px;
+}
+
+.tahoe-run-chart-verdict {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.tahoe-run-chart-verdict.is-error {
+  color: var(--color-red, #ff3b30);
+  font-weight: 500;
+}
+
+.tahoe-run-chart-body {
+  padding: 4px 8px 8px;
+}
+
+.tahoe-run-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--font-interface);
+}
+
+.tahoe-run-chart-grid {
+  stroke: var(--background-modifier-border);
+  stroke-width: 1;
+}
+
+.tahoe-run-chart-axis {
+  stroke: var(--background-modifier-border-hover, var(--text-faint));
+  stroke-width: 1;
+}
+
+.tahoe-run-chart-label {
+  font-size: 10.5px;
+  fill: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.tahoe-run-chart-empty {
+  font-size: 12px;
+  fill: var(--text-muted);
+}
+
+.tahoe-run-chart-fit {
+  fill: none;
+  stroke: color-mix(in srgb, var(--interactive-accent) 55%, var(--text-faint));
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+  stroke-linecap: round;
+}
+
+.tahoe-run-chart-point {
+  fill: var(--interactive-accent);
+  stroke: var(--background-primary);
+  stroke-width: 1.5;
+  animation: tahoe-run-in 0.25s ease-out;
+}
+
+/* Kernel status (status bar) */
+.tahoe-run-kernel-status {
+  gap: 6px;
+  align-items: center;
+}
+
+.tahoe-run-kernel-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-green, #34c759);
+}
+
+.tahoe-run-kernel-dot.is-busy {
+  background: var(--color-orange, #ff9500);
+  animation: tahoe-run-pulse 1s ease-in-out infinite;
+}
+
+.tahoe-run-kernel-dot.is-starting {
+  background: var(--text-faint);
+}
+
+/* Sheets: settings sit in an inset-grouped card, as in System Settings */
+.tahoe-complexity-modal {
+  width: min(560px, 92vw);
+}
+
+.tahoe-run-form {
+  margin: 4px 0 16px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: var(--tahoe-card, var(--background-primary));
+  box-shadow: 0 0 0 0.5px var(--tahoe-separator, var(--background-modifier-border));
+}
+
+/* Beat Obsidian's own .setting-item spacing and dividers inside the card */
+.tahoe-run-form > .setting-item.setting-item {
+  align-items: center;
+  margin: 0;
+  padding: 10px 0 !important;
+  border: none !important;
+}
+
+.tahoe-run-form > .setting-item + .setting-item {
+  box-shadow: inset 0 0.5px 0 var(--tahoe-separator, var(--background-modifier-border));
+}
+
+.tahoe-run-form .setting-item-description:empty {
+  display: none;
+}
+
+.tahoe-complexity-intro {
+  margin-top: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.tahoe-complexity-code {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  width: 280px;
+}
+
+/* The variables view (right sidebar) */
+.tahoe-run-vars {
+  padding: 10px 12px 16px;
+  font-size: var(--font-ui-small);
+}
+
+.tahoe-run-vars-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tahoe-run-vars-note {
+  flex: 1;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tahoe-run-vars-section + .tahoe-run-vars-section {
+  margin-top: 16px;
+}
+
+.tahoe-run-vars-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tahoe-run-vars-state {
+  margin-left: auto;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+}
+
+.tahoe-run-vars-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-green, #34c759);
+}
+
+.tahoe-run-vars-dot.is-busy {
+  background: var(--color-orange, #ff9500);
+  animation: tahoe-run-pulse 1s ease-in-out infinite;
+}
+
+.tahoe-run-vars-dot.is-paused {
+  background: var(--color-yellow, #ffcc00);
+}
+
+.tahoe-run-vars-list {
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--tahoe-card, var(--background-primary));
+  box-shadow: 0 0 0 0.5px var(--tahoe-separator, var(--background-modifier-border));
+}
+
+.tahoe-run-vars-list.is-stale {
+  opacity: 0.55;
+}
+
+.tahoe-run-vars-item {
+  padding: 6px 10px;
+}
+
+.tahoe-run-vars-item + .tahoe-run-vars-item {
+  box-shadow: inset 0 0.5px 0 var(--tahoe-separator, var(--background-modifier-border));
+}
+
+.tahoe-run-vars-item.is-openable {
+  cursor: pointer;
+}
+
+.tahoe-run-vars-item.is-openable:hover {
+  background: var(--background-modifier-hover);
+}
+
+.tahoe-run-vars-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tahoe-run-vars-top .is-name {
+  font-family: var(--font-monospace);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tahoe-run-vars-top .is-type {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.tahoe-run-vars-top .is-chevron {
+  align-self: center;
+  display: flex;
+  color: var(--text-faint);
+}
+
+.tahoe-run-vars-top .is-chevron svg {
+  width: 13px;
+  height: 13px;
+}
+
+.tahoe-run-vars-item .is-value {
+  margin-top: 1px;
+  font-family: var(--font-monospace);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tahoe-run-vars-empty {
+  padding: 4px 2px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* A variable as a sheet */
+.tahoe-run-sheet-modal {
+  width: min(900px, 94vw);
+}
+
+.tahoe-run-sheet-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.tahoe-run-sheet-note {
+  color: var(--text-faint);
+}
+
+.tahoe-run-sheet-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.tahoe-run-sheet {
+  max-height: min(62vh, 640px);
+  overflow: auto;
+  border-radius: 12px;
+  background: var(--tahoe-card, var(--background-primary));
+  box-shadow: 0 0 0 0.5px var(--tahoe-separator, var(--background-modifier-border));
+}
+
+.tahoe-run-sheet table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  min-width: 100%;
+}
+
+.tahoe-run-sheet th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: start;
+  font-family: var(--font-interface);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border: none;
+  background: var(--tahoe-fill-4, var(--background-secondary));
+  white-space: nowrap;
+}
+
+.tahoe-run-sheet td {
+  padding: 4px 12px;
+  border: none;
+  box-shadow: inset 0 0.5px 0 var(--tahoe-separator, var(--background-modifier-border));
+  white-space: nowrap;
+  max-width: 28em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tahoe-run-sheet .is-index {
+  position: sticky;
+  left: 0;
+  color: var(--text-faint);
+  background: var(--tahoe-card, var(--background-primary));
+}
+
+.tahoe-run-sheet th.is-index {
+  z-index: 2;
+  background: var(--tahoe-fill-4, var(--background-secondary));
+}
+
+.tahoe-run-sheet .is-number {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.tahoe-run-sheet tbody tr:hover td {
+  background: var(--background-modifier-hover);
+}
+
+@keyframes tahoe-run-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Settings */
+.tahoe-run-warning {
+  margin: 0 0 12px;
+}
+
+.tahoe-run-detect {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-interface);
+}
+
+.tahoe-run-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.tahoe-run-dot.is-ok {
+  background: var(--color-green, #34c759);
+}
+
+.tahoe-run-dot.is-missing {
+  background: var(--text-faint);
+}
+
+@keyframes tahoe-run-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes tahoe-run-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* Output saved in the note: the callout below the block shows it, so the
+   card keeps just its header (status, Explain, copy, clear). */
+.tahoe-run-output.is-saved .tahoe-run-output-body,
+.tahoe-run-output.is-saved .tahoe-run-figures {
+  display: none;
+}
+
+.tahoe-run-output.is-saved .tahoe-run-output-header {
+  box-shadow: none;
+}
+
+.tahoe-run-output.is-saved {
+  margin-bottom: 6px;
+}
+
+/* The saved-output callout: quiet, like the console card */
+.callout[data-callout="output"] {
+  --callout-color: 142, 142, 147;
+  --callout-icon: lucide-terminal-square;
+  --callout-padding: 8px 14px 10px;
+  background: var(--code-background, var(--background-primary-alt));
+  box-shadow: inset 0 0 0 0.5px var(--tahoe-separator, var(--background-modifier-border));
+}
+
+.callout[data-callout="output"] .callout-title {
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.callout[data-callout="output"] .callout-icon {
+  --icon-size: 13px;
+  color: var(--color-green, #34c759);
+}
+
+.callout[data-callout="output"][data-callout-metadata="error"] .callout-icon {
+  color: var(--color-red, #ff3b30);
+}
+
+.callout[data-callout="output"][data-callout-metadata="error"] .callout-content pre code {
+  color: var(--color-red, #ff3b30);
+}
+
+.callout[data-callout="output"] .callout-content > :first-child {
+  margin-top: 4px;
+}
+
+.callout[data-callout="output"] .callout-content pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.callout[data-callout="output"] .callout-content pre code {
+  font-size: 0.82em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.callout[data-callout="output"] .callout-content img {
+  margin-top: 8px;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 0 0 0.5px var(--background-modifier-border);
+}
+
+/* "line 3" in an error: a link to that line of the block */
+.tahoe-run-line-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.tahoe-run-line-link:hover {
+  text-decoration-style: solid;
+}
+
+/* The line an error link jumped to (cleared when the line is edited) */
+.cm-line.tahoe-run-error-line {
+  background: color-mix(in srgb, var(--color-red, #ff3b30) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--color-red, #ff3b30);
+}
+
+/* Hover a name: its value in the running session */
+.cm-tooltip.cm-tooltip-hover:has(.tahoe-run-value) {
+  border-radius: var(--tahoe-radius-menu, 10px);
+  overflow: hidden;
+}
+
+.cm-tooltip-section:has(> .tahoe-run-value) + .cm-tooltip-section,
+.cm-tooltip-section + .cm-tooltip-section:has(> .tahoe-run-value) {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.tahoe-run-value {
+  max-width: min(520px, 80vw);
+  padding: 6px 10px 8px;
+  font-size: var(--font-ui-smaller);
+}
+
+.tahoe-run-value-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.tahoe-run-value-head b {
+  font-family: var(--font-monospace);
+  font-weight: 600;
+}
+
+.tahoe-run-value-head span {
+  color: var(--text-muted);
+}
+
+.tahoe-run-value pre {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  font-family: var(--font-monospace);
+  font-size: var(--code-size, 0.85em);
+  white-space: pre;
+}
+
+.tahoe-run-install-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Choose Python for this note */
+.tahoe-run-pick-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tahoe-run-pick-name {
+  font-weight: 600;
+}
+
+.tahoe-run-pick-version {
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.tahoe-run-pick-check {
+  margin-left: auto;
+  color: var(--text-accent);
+  font-weight: 700;
+}
+
+.tahoe-run-pick-sub {
+  margin-top: 1px;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.suggestion-item.is-selected :is(.tahoe-run-pick-version, .tahoe-run-pick-sub, .tahoe-run-pick-check) {
+  color: inherit;
+  opacity: 0.85;
+}
+
+/* Hover cards are for reading: clicks go through them to the code underneath
+   (unless a card has a button in it). */
+.cm-tooltip.cm-tooltip-hover:not(:has(button, a, input, .cm-diagnosticAction)),
+.cm-tooltip:has(> .tahoe-code-signature) {
+  pointer-events: none;
+}
+
+/* Progress bars (tqdm and the like) aren't errors */
+.tahoe-run-progress {
+  color: var(--text-muted);
+}
+
+/* Debugger: breakpoints are Xcode's blue tags, over the line number */
+.markdown-source-view.mod-cm6 .cm-line.tahoe-run-bp {
+  position: relative;
+}
+
+.markdown-source-view.mod-cm6 .cm-line.tahoe-run-bp::after {
+  content: attr(data-tc-ln);
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 2px;
+  min-width: 16px;
+  width: calc(var(--size-4-4, 16px) + 1.6em - 2px);
+  height: 1.35em;
+  transform: translateY(-50%);
+  padding-inline-end: 9px;
+  box-sizing: border-box;
+  border-radius: 3px;
+  font-size: 0.86em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.55em;
+  text-align: end;
+  color: #ffffff;
+  background: #0a84ff;
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 0 100%);
+  pointer-events: none;
+}
+
+.markdown-source-view.mod-cm6 .cm-line.tahoe-run-bp:not(.tc-ln)::after {
+  width: 14px;
+  padding: 0;
+}
+
+/* Where the debugger is paused: Xcode's green line */
+.markdown-source-view.mod-cm6 .cm-line.tahoe-run-paused {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--color-green, #34c759) 20%, transparent);
+}
+
+/* The debug bar on the output card */
+.tahoe-run-debug {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--tahoe-separator, var(--background-modifier-border));
+}
+
+.tahoe-run-debug-where {
+  margin-right: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-green, #34c759);
+}
+
+.tahoe-run-output .tahoe-run-debug > button.tahoe-run-debug-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  height: 24px;
+  padding: 0 !important;
+  border: none;
+  border-radius: 6px;
+  box-shadow: none;
+  color: var(--text-normal);
+  background: rgb(120 120 128 / 0.12);
+  cursor: pointer;
+}
+
+.tahoe-run-output .tahoe-run-debug > button.tahoe-run-debug-btn:hover {
+  background: rgb(120 120 128 / 0.22);
+}
+
+.tahoe-run-output .tahoe-run-debug > button.tahoe-run-debug-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tahoe-run-output .tahoe-run-debug > button.tahoe-run-debug-continue {
+  color: var(--color-green, #34c759);
+}
+
+.tahoe-run-output .tahoe-run-debug > button.tahoe-run-debug-stop {
+  color: var(--color-red, #ff3b30);
+}
+
+/* The line number under a breakpoint's tag (Tahoe Code's) gives way to the tag's own */
+.markdown-source-view.mod-cm6 .cm-line.tahoe-run-bp::before {
+  color: transparent !important;
+}
+
+/* Paused: a still green dot, not the spinner */
+.tahoe-run-output.is-paused .tahoe-run-status {
+  width: 9px;
+  height: 9px;
+  border: none !important;
+  border-radius: 50%;
+  background: var(--color-green, #34c759) !important;
+  animation: none !important;
+}
+
+.tahoe-run-wide-input {
+  width: 100%;
+}
