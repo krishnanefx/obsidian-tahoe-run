@@ -19,6 +19,16 @@ const VERSION = "314.0.7";
 const CDN = `https://cdn.jsdelivr.net/pyodide/v${VERSION}/full/`;
 const BASE = "https://tahoe-pyodide.invalid/"; // where Pyodide thinks its files are; served from the plugin folder
 const CORE = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
+// SHA-256 of each core file for this VERSION, the same on the CDN and in the
+// pyodide package on npm. Pinning the lock file also pins every package's
+// checksum, since those come from it. Update these when VERSION changes.
+const CORE_SHA256 = {
+  "pyodide.mjs": "6f1d60f7bf529beb300f0f47983c921d3982363640ba20af0e38efdddbc66109",
+  "pyodide.asm.mjs": "f7cdc8ece80678ceb712f8e65ebe6d3a83203a180c399865f49612a051693635",
+  "pyodide.asm.wasm": "cc36e3cab04fdfc9a63ff13eb52eae2b911bf46c025cc7b281f394bd3de1d5e6",
+  "python_stdlib.zip": "fa1957e5777068fc4f7437f96d860ae2fbe9c19732ba06c84e004ec16dd7dd7a",
+  "pyodide-lock.json": "5dc2fc119108bc148c7457dc86e7675b5c87e1cafd420b9c34c1eaef7b36c010",
+};
 const CORE_BYTES = 13.5e6;
 const COMMON = ["numpy", "matplotlib"];
 const TYPES = { wasm: "application/wasm", mjs: "text/javascript", js: "text/javascript", json: "application/json", zip: "application/zip", whl: "application/zip", tar: "application/x-tar" };
@@ -60,16 +70,18 @@ class PyodideStore {
   async fetch(name) {
     const r = await requestUrl({ url: CDN + name, throw: false });
     if (r.status >= 400) throw new Error(`Couldn't download ${name} (${r.status})`);
-    // Packages must match the SHA-256 Pyodide lists for them, or they aren't kept.
+    // Core files must match their pinned SHA-256, and packages the one Pyodide
+    // lists for them, or they aren't kept.
     const want = await this.checksum(name);
     if (want && (await sha256(r.arrayBuffer)) !== want) throw new Error(`${name} didn't match its checksum, so it wasn't kept`);
     await this.write(name, r.arrayBuffer);
     return r.arrayBuffer;
   }
 
-  // The SHA-256 pyodide-lock.json gives a package file, if it's one of them.
+  // The pinned SHA-256 for a core file, or the one pyodide-lock.json gives a package file.
   async checksum(name) {
-    if (name === "pyodide-lock.json" || !(await this.has("pyodide-lock.json"))) return null;
+    if (CORE_SHA256[name]) return CORE_SHA256[name];
+    if (!(await this.has("pyodide-lock.json"))) return null;
     if (!this.sums) {
       const lock = JSON.parse(new TextDecoder().decode(await this.read("pyodide-lock.json")));
       this.sums = new Map(Object.values(lock.packages || {}).map((p) => [p.file_name, p.sha256]));

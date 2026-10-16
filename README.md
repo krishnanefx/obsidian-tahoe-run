@@ -68,7 +68,7 @@ When a block fails, its output gets an **Explain** button: a model reads the cod
 
 - **It runs programs on your computer:** your Python, MATLAB, compilers and other language tools, with your user account's permissions, when you run a block. Only run code you trust. A Python kernel or MATLAB session keeps running for a note until it's idle for 30 minutes, you restart it or Obsidian quits.
 - **Network use**, only when you ask for it:
-  - *Python on iPhone and iPad:* Pyodide is downloaded from cdn.jsdelivr.net when you press Download in the settings, and its packages from the same place when a block first imports them. Each package is checked against the SHA-256 in Pyodide's package list before it's kept.
+  - *Python on iPhone and iPad:* Pyodide is downloaded from cdn.jsdelivr.net when you press Download in the settings, and its packages from the same place when a block first imports them. Pyodide's own files are checked against SHA-256s pinned in the plugin, and each package against the SHA-256 in Pyodide's package list, before they're kept.
   - *Installing a missing package* runs `pip`, which downloads from PyPI, after you confirm.
   - *Explain with Claude* sends the failing block's code and output to Anthropic's API (api.anthropic.com) with your API key. Apple Intelligence runs on your Mac, and Ollama on your own computer (localhost), so with those your code doesn't leave it.
 - **Files outside your vault:** runs use temporary folders in your system's temp folder. *Choose Python… → New environment* creates it in `~/.virtualenvs`. The Apple Intelligence helper is kept in `~/Library/Caches/tahoe-run`. To list your Pythons, it looks in the usual places they're installed.
