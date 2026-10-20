@@ -7,7 +7,8 @@
   "author": "Krishnan Adaikkappan",
   "scripts": {
     "build": "node esbuild.config.mjs",
-    "dev": "node esbuild.config.mjs --watch"
+    "dev": "node esbuild.config.mjs --watch",
+    "test": "node tests/unit/run.test.cjs && node tests/runners/runners.test.cjs && python3 -m unittest discover -s tests/kernel -p \"test_*.py\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0"
