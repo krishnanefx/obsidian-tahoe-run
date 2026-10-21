@@ -31,13 +31,17 @@ const LANGUAGES = [
   { id: "sql", label: "SQLite", aliases: ["sql", "sqlite", "sqlite3"], ext: "sql", run: "sqlite3 -header -box :memory: < {file}" },
 ];
 
-const FENCE_OPEN = /^((?:[ \t]*>)*[ \t]*)(`{3,}|~{3,})[ \t]*\{?([^\s`{}]*)\}?(.*)$/;
+// A fence, after callout markers (with at most 4 spaces after the last ">",
+// so a saved output's indented "```" isn't one) or after any indentation (lists).
+const FENCE_OPEN = /^((?:[ \t]*>)+ {0,4}|[ \t]*)(`{3,}|~{3,})[ \t]*\{?([^\s`{}]*)\}?(.*)$/;
 
 function findCodeBlocks(lines) {
   const blocks = [];
   let open = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    // A block in a callout ends with the callout, closed or not (an unclosed one isn't run).
+    if (open && open.quoted && !/^[ \t]*>/.test(line)) open = null;
     if (!open) {
       const m = FENCE_OPEN.exec(line);
       if (m && !(m[2][0] === "`" && m[4].includes("`"))) {
@@ -48,9 +52,11 @@ function findCodeBlocks(lines) {
     const body = open.quoted ? line.replace(/^(?:[ \t]*>)*[ \t]?/, "") : line;
     const t = body.trim();
     if (t.length >= open.fence.length && t[0] === open.fence[0] && /^(`{3,}|~{3,})$/.test(t)) {
+      // Content loses the fence's own indentation (a block in a list item), as in CommonMark.
+      const indent = open.quoted ? 0 : open.prefix.length;
       const code = lines
         .slice(open.start + 1, i)
-        .map((l) => (open.quoted ? l.replace(/^(?:[ \t]*>)*[ \t]?/, "") : l))
+        .map((l) => (open.quoted ? l.replace(/^(?:[ \t]*>)*[ \t]?/, "") : l.replace(new RegExp(`^[ \\t]{0,${indent}}`), "")))
         .join("\n");
       blocks.push({ start: open.start, end: i, lang: open.lang, code });
       open = null;
@@ -83,4 +89,4 @@ function hash(text) {
   return (h >>> 0).toString(36);
 }
 
-export { LANGUAGES, findCodeBlocks, shellQuote, fill, formatDuration, hash };
+export { LANGUAGES, findCodeBlocks, shellQuote, fill, formatDuration, hash, FENCE_OPEN };

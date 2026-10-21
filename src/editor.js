@@ -9,21 +9,25 @@
 import { MarkdownView, editorInfoField } from "obsidian";
 import { StateField, StateEffect } from "@codemirror/state";
 import { Decoration, EditorView, hoverTooltip } from "@codemirror/view";
-import { findCodeBlocks } from "./blocks";
+import { findCodeBlocks, FENCE_OPEN } from "./blocks";
 
-const OPEN = /^(?:[ \t]*>[ \t]?)*[ \t]*(`{3,}|~{3,})[ \t]*\{?([^\s`{}]*)/;
 const CLOSE = /^(?:[ \t]*>[ \t]?)*[ \t]*(`{3,}|~{3,})[ \t]*$/;
 
-// The language of the fenced block holding `pos`, or null (outside one, or on a fence).
+// The language of the fenced block holding `pos`, or null (outside one, or on
+// a fence). Fences are found by the same rules as findCodeBlocks.
 function langAt(state, pos) {
   const n = state.doc.lineAt(pos).number;
   let open = null;
   for (let i = 1; i <= state.doc.lines; i++) {
     const text = state.doc.line(i).text;
+    if (open && open.quoted && !/^[ \t]*>/.test(text)) {
+      if (n > open.line && n < i) return null; // an unclosed block in a callout isn't a block
+      open = null;
+    }
     if (!open) {
       if (i >= n) return null;
-      const m = OPEN.exec(text);
-      if (m) open = { line: i, lang: (m[2] || "").toLowerCase(), fence: m[1] };
+      const m = FENCE_OPEN.exec(text);
+      if (m && !(m[2][0] === "`" && m[4].includes("`"))) open = { line: i, lang: (m[3] || "").toLowerCase(), fence: m[2], quoted: m[1].includes(">") };
       continue;
     }
     const c = CLOSE.exec(text);

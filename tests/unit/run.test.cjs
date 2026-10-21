@@ -63,12 +63,12 @@ test("blocks: blocks in list items are found", () => {
   eq(b.map((x) => [x.lang, x.start, x.end]), [["python", 1, 3], ["matlab", 6, 8]]);
 });
 
-test.skip("blocks: a block in a list item loses the list's indentation", "BUG: findCodeBlocks keeps the fence's indentation on every line, so a Python block in a list item fails with IndentationError", () => {
+test("blocks: a block in a list item loses the list's indentation", () => {
   eq(codes("1. Step one\n   ```python\n   if True:\n       print(1)\n   ```"), [["python", "if True:\n    print(1)"]]);
   eq(codes("- item\n\n    ```python\n    x = 1\n    ```"), [["python", "x = 1"]]);
 });
 
-test.skip("blocks: an unclosed block in a callout ends with the callout", "BUG: a line outside the callout doesn't end a quoted block, so the next block is swallowed", () => {
+test("blocks: an unclosed block in a callout ends with the callout", () => {
   eq(codes("> ```python\n> x = 1\n\n```js\nlet a\n```"), [["js", "let a"]]);
 });
 
@@ -139,7 +139,7 @@ test("cursor: agrees with the block finder line by line", () => {
   }
 });
 
-test.skip("cursor: inline triple backticks don't start a block", "BUG: langAt accepts ```js``` with text after it as a fence, which findCodeBlocks rejects", () => {
+test("cursor: inline triple backticks don't start a block", () => {
   const st = fakeState("```js``` is inline\ntext\n```python\nx=1\n```");
   eq([2, 4].map((n) => editor.langAt(st, st.doc.line(n).from)), [null, "python"]);
 });
@@ -587,7 +587,7 @@ test("saved: what's written reads back as the block's output", async () => {
   eq(notebook.parseNote(vault.text("Labs/Lab.md"))[0].output, { status: "error", text: textOut, images: ["Lab - output 1-1.png"] });
 });
 
-test.skip("saved: output that prints a fence doesn't become a code block", "BUG: a fence indented more than 4 spaces after '>' still opens a block, so saved output can contain a phantom block", async () => {
+test("saved: output that prints a fence doesn't become a code block", async () => {
   const { vault, plugin } = savedSetup("```python\nprint('```python')\n```\n\n```js\nlet a\n```");
   await saved.saveOutput(plugin, { sourcePath: "Labs/Lab.md", ordinal: 0, code: "print('```python')" }, out({ parts: [["out", "```python\nx = 1\n```\n"]] }));
   eq(codes(vault.text("Labs/Lab.md")).map((b) => b[0]), ["python", "js"]);
