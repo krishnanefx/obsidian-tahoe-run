@@ -111,7 +111,7 @@ function bodyText(output) {
 async function trashImages(app, names, sourcePath) {
   for (const name of names) {
     const f = app.metadataCache.getFirstLinkpathDest(name, sourcePath);
-    if (f instanceof TFile && / - output \d+-\d+$/.test(f.basename)) {
+    if (f instanceof TFile && / - output \d+-\d+(?: \d+)?$/.test(f.basename)) {
       try {
         await app.fileManager.trashFile(f);
       } catch {

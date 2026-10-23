@@ -508,7 +508,7 @@ test("saved: a plot name that's taken gets the next free one", async () => {
   eq(vault.trashed, [], "the other file is left alone");
 });
 
-test.skip("saved: a plot saved under a de-duplicated name is still cleaned up", "BUG: trashImages only recognises names ending ' - output N-M', so 'Lab - output 1-1 1.png' is never cleaned up", async () => {
+test("saved: a plot saved under a de-duplicated name is still cleaned up", async () => {
   const { vault, plugin } = savedSetup("```python\nplot()\n```");
   vault.put("Labs/Lab - output 1-1.png", new ArrayBuffer(1));
   const block = { sourcePath: "Labs/Lab.md", ordinal: 0, code: "plot()" };
