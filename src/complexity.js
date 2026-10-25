@@ -117,7 +117,13 @@ function fitComplexity(points, { subtractBaseline = false } = {}) {
   for (const r of results) {
     if (r.error <= best.error * 1.12 && order.indexOf(r.id) < order.indexOf(best.id)) best = r;
   }
-  const runnerUp = results.find((r) => r.id !== best.id);
+  // A runner-up whose growth term is negligible over the sizes measured is just
+  // O(1) again, so it says nothing about how close the call was.
+  const grows = (r) => {
+    const g = Math.abs(r.b * r.f(maxN));
+    return g > 0.05 * (Math.abs(r.a) + g);
+  };
+  const runnerUp = results.find((r) => r.id !== best.id && (best.id !== "1" || grows(r)));
 
   // Empirical exponent from the larger half of the sizes.
   const tail = pts.slice(Math.floor(pts.length / 2));

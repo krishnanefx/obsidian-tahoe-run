@@ -1219,7 +1219,7 @@ test("complexity: synthetic timings are fitted to the right class", () => {
   eq(quad.label, "O(n²)");
 });
 
-test.skip("complexity: a constant-time function is reported with confidence", "BUG: models with a near-zero slope fit constant timings as well as O(1), so O(1) always comes out 'hard to tell'", () => {
+test("complexity: a constant-time function is reported with confidence", () => {
   const fit = complexity.fitComplexity(timings(sizes(1e6), () => 2e-4, 0.05));
   eq([fit.id, fit.confidence], ["1", "high"]);
 });
