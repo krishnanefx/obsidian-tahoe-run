@@ -843,7 +843,12 @@ export default class TahoeRunPlugin extends Plugin {
       child.on("close", (code, signal) => {
         if (timer) window.clearTimeout(timer);
         if (timedOut && output) output.append("info", `\nStopped after ${seconds} s (time limit).`);
-        const notFound = code === 127 && /command not found|not found/i.test(stderrTail);
+        // Exit 127 with a "not found" line that names the command itself: the tool
+        // isn't installed (not a command the script ran that's missing).
+        const tool = (command.trim().match(/^(?:'([^']+)'|"([^"]+)"|(\S+))/) || []).slice(1).find(Boolean) || "";
+        const name = tool.split("/").pop().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const word = name && new RegExp(`(^|[\\s:])${name}(:|\\s|$)`);
+        const notFound = code === 127 && !!word && stderrTail.split("\n").some((l) => /not found/i.test(l) && word.test(l));
         resolve({ code: code === null ? (signal ? 1 : 0) : code, signal, timedOut, notFound, command: command.split(" ")[0], stderr: stderrTail });
       });
     });

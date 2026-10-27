@@ -1,7 +1,7 @@
 {
   "id": "tahoe-run",
   "name": "Tahoe Run",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "minAppVersion": "1.13.0",
   "description": "Run code blocks in place with live output: a Python notebook with a debugger and variables view, MATLAB, C/C++, Swift and more on desktop, and Python on iPhone and iPad (beta). Plots and animations, Jupyter export and an Explain button.",
   "author": "Krishnan Adaikkappan",

@@ -287,7 +287,7 @@ test("Bash: a command that isn't found links to its line", async () => {
   eq(lines(o), [[2, 0]]);
 });
 
-test.skip("Bash: a script's own missing command isn't reported as bash missing", "BUG: any exit code 127 with 'not found' in stderr is taken to mean the run command isn't installed", async () => {
+test("Bash: a script's own missing command isn't reported as bash missing", async () => {
   const o = await runBlock("bash", "echo start\nno_such_command_xyz");
   eq(o.exitCode, 127);
   ok(!/isn’t installed or isn’t on your PATH/.test(o.text()), o.text());
