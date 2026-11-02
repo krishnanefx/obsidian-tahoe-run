@@ -33,7 +33,7 @@ Tahoe Run is developed and tested on macOS. It's written to work on Windows and 
 - **⇧Enter** runs a block and moves to the next one, or starts a new block below the last, as in Jupyter.
 - **Saved output:** each run's output (and its plots, as image attachments) is written into the note in an *Output* callout under the block, so it's still there next time. Running again replaces it; clearing it moves its images to the trash. You can turn this off.
 - **Errors link to their lines.** Click *line 3* or *main.cpp:3:14* in an error to jump to that line of the block.
-- **Hover a name** in a Python or MATLAB block to see its value in the running session.
+- **Hover a name** in a Python or MATLAB block to see its value in the running session (in the debugger, the paused function's).
 
 ### Python
 

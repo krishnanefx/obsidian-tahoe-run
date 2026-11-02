@@ -1000,7 +1000,8 @@ export default class TahoeRunPlugin extends Plugin {
     if (ctx.lang === "python") {
       const kernel = this.kernels.get(ctx.sourcePath);
       let items;
-      if (kernel && kernel.state === "idle") items = await kernel.complete(ctx.code, ctx.line + 1, ctx.column);
+      // While paused in the debugger, the kernel suggests from the paused frame.
+      if (kernel && (kernel.state === "idle" || kernel.state === "paused")) items = await kernel.complete(ctx.code, ctx.line + 1, ctx.column);
       else if (!DESKTOP || this.usePyodide) items = [];
       else {
         const before = ctx.earlier.length ? `${ctx.earlier.join("\n")}\n` : "";
@@ -1285,7 +1286,9 @@ export default class TahoeRunPlugin extends Plugin {
 
   debugStep(output, action) {
     const kernel = output.kernelRef;
-    if (kernel && kernel.state === "paused") kernel.debug(action);
+    if (!kernel || kernel.state !== "paused") return;
+    if (action === "stop") output.stopRequested = true; // ends as "stopped", like the capsule's Stop
+    kernel.debug(action);
   }
 
   // The variables view, in the right sidebar.

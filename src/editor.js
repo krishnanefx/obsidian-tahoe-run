@@ -52,7 +52,8 @@ function valueHover(plugin) {
       const sourcePath = info && info.file ? info.file.path : null;
       if (!sourcePath) return null;
       const session = (def.id === "python" ? plugin.kernels : plugin.matlab).get(sourcePath);
-      if (!session || session.state !== "idle") return null;
+      // Idle, or paused in the debugger (then the kernel answers from the paused frame).
+      if (!session || (session.state !== "idle" && session.state !== "paused")) return null;
       // The name (with any .attribute before it) under the pointer.
       const line = view.state.doc.lineAt(pos);
       const col = pos - line.from;

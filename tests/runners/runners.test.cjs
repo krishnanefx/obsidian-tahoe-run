@@ -560,7 +560,7 @@ test("kernel: a breakpoint set in the editor pauses the run; the card steps it o
   }
 });
 
-test.skip("kernel: Stop in the debugger bar ends the run as stopped, not failed", "BUG: Stop in the debugger bar doesn't set stopRequested, so the run ends as an error", async () => {
+test("kernel: Stop in the debugger bar ends the run as stopped, not failed", async () => {
   const note = "```python\nx = 1\ny = 2\n```";
   const p = await kernelPlugin(note);
   try {
