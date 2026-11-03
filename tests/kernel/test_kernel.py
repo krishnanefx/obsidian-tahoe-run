@@ -297,7 +297,6 @@ class Errors(KernelCase):
         self.assertNotIn("kernel.py", err)
         self.assertEqual(self.k.run("1")[0]["result"], "1")
 
-    @unittest.skip("BUG: a SyntaxError's traceback starts with the standard library's ast.py frame")
     def test_a_syntax_error_shows_only_the_cell(self):
         _, _, err = self.k.run("y = (\n")
         self.assertNotIn("ast.py", err)

@@ -336,11 +336,15 @@ def run_cell(code, breakpoints=None, cell_id=None, namespace=None):
     except BaseException as exc:  # noqa: BLE001 - report everything the cell raised
         ok = False
         error = {"ename": type(exc).__name__, "evalue": str(exc)}
-        tb = exc.__traceback__
-        # Drop the kernel's own frame so the traceback starts in the cell.
-        while tb is not None and tb.tb_frame.f_code.co_filename == __file__:
-            tb = tb.tb_next
-        sys.stderr.write("".join(traceback.format_exception(type(exc), exc, tb)))
+        if isinstance(exc, SyntaxError):
+            # Raised by the kernel's own ast.parse: only the error and the cell's line matter.
+            sys.stderr.write("".join(traceback.format_exception_only(type(exc), exc)))
+        else:
+            tb = exc.__traceback__
+            # Drop the kernel's own frame so the traceback starts in the cell.
+            while tb is not None and tb.tb_frame.f_code.co_filename == __file__:
+                tb = tb.tb_next
+            sys.stderr.write("".join(traceback.format_exception(type(exc), exc, tb)))
     flush_streams()
     return {
         "ok": ok,
