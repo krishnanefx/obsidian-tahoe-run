@@ -918,14 +918,13 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
 /* "line 3" in an error: a link to that line of the block */
 .tahoe-run-line-link {
   color: inherit;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 2px;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
   cursor: pointer;
 }
 
 .tahoe-run-line-link:hover {
-  text-decoration-style: solid;
+  border-bottom-style: solid;
 }
 
 /* The line an error link jumped to (cleared when the line is edited) */
