@@ -1,5 +1,7 @@
 # Tahoe Run
 
+![Running a Python block: the output appears right under it](images/demo.gif)
+
 **Run the code in your notes, like a notebook.** Python gets a live kernel with a real debugger and a variables view, MATLAB runs in a session of your own MATLAB, and C, C++, Swift, JavaScript and twenty-odd other languages run with the tools you have installed. The output, plots included, appears right under the block. Python also runs on iPhone and iPad (beta).
 
 ![Stepping through a breakpoint while the variables view updates](images/debugger-demo.png)
