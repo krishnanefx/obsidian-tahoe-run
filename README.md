@@ -19,6 +19,7 @@
 - **A variables view**, like MATLAB's Workspace, with sheets for lists, arrays, DataFrames, dicts and MATLAB matrices, structs and tables.
 - **MATLAB** with your own MATLAB and its licence: one session per note, figures under the block, and `drawnow` loops as animations.
 - **Plots and animations** under the block: Matplotlib figures, `FuncAnimation` as looping GIFs, and progress bars that update in place.
+- **Input.** `input()`, `getpass()` and `sys.stdin` in Python ask in a field under the block, and C, Java, Go and the other languages' programs read what you type there too.
 - **Packages:** when a block fails with *No module named 'cv2'*, the output offers to install `opencv-python` into the note's Python, then runs the block again.
 - **Jupyter:** export a note as a `.ipynb` notebook (with its outputs and plots), a `.py` script with `# %%` cells or a `.m` script with `%%` sections, and import notebooks and scripts as notes.
 - **Explain this error:** a model explains a failed block and suggests a fix you can apply.

@@ -317,6 +317,23 @@ class Errors(KernelCase):
         self.assertIsNone(self.k.p.poll(), "still running")
         self.assertEqual(self.k.run("'alive'")[0]["result"], "'alive'")
 
+    def test_input_asks_the_plugin_for_a_line_for_this_cell(self):
+        cell = self.k.start("name = input('Name? ')\nname.upper()")
+        ask = self.k.wait("input")
+        self.assertEqual((ask["id"], ask["prompt"], ask["password"]), (cell, "Name? ", False), "the running cell's id, so the plugin shows the field under it")
+        self.k.send({"type": "input-reply", "value": "ada"})
+        done, out, _ = self.k.finish(cell)
+        self.assertEqual((done["ok"], done["result"], out), (True, "'ADA'", "Name? ada\n"))
+
+    def test_ctrl_c_while_waiting_for_input_stops_the_cell(self):
+        cell = self.k.start("x = input()")
+        self.k.wait("input")
+        os.kill(self.k.p.pid, signal.SIGINT)
+        done, _, _ = self.k.finish(cell, timeout=5)
+        self.assertEqual(done["error"]["ename"], "KeyboardInterrupt")
+        self.assertEqual(self.k.run("'next'")[0]["result"], "'next'", "and the next command is read as usual")
+
+
 class Interrupting(KernelCase):
     def interrupt_when_busy(self, code):
         self.k.run("kept = 'still here'")

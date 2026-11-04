@@ -779,7 +779,7 @@ export default class TahoeRunPlugin extends Plugin {
       if (result.code === 0 && !output.stopRequested) {
         output.phase = "";
         output.changed();
-        result = await this.spawn(job.runCommand, job.cwd, job.env, output, def.id === "matlab" || def.id === "octave" ? { filterErr: tidyMatlabErr, filterOut: tidyMatlabOut } : {});
+        result = await this.spawn(job.runCommand, job.cwd, job.env, output, Object.assign({ stdin: true }, def.id === "matlab" || def.id === "octave" ? { filterErr: tidyMatlabErr, filterOut: tidyMatlabOut } : {}));
       }
 
       if (def.id === "python" ? this.settings.figures : def.id === "matlab" || def.id === "octave") {
@@ -816,13 +816,18 @@ export default class TahoeRunPlugin extends Plugin {
       const args = isWindows ? ["/d", "/s", "/c", command] : ["-c", command];
       let child;
       try {
-        child = childProcess.spawn(shell, args, { cwd, env, detached: !isWindows, stdio: ["ignore", output ? "pipe" : "ignore", "pipe"] });
+        // The run step gets a stdin the card's input field writes to; other steps get none.
+        child = childProcess.spawn(shell, args, { cwd, env, detached: !isWindows, stdio: [opts.stdin && output ? "pipe" : "ignore", output ? "pipe" : "ignore", "pipe"] });
       } catch (error) {
         if (output) output.append("err", String(error.message || error));
         resolve({ code: -1, stderr: String(error.message || error) });
         return;
       }
       if (output) output.process = child;
+      if (opts.stdin && output && child.stdin) {
+        child.stdin.on("error", () => {}); // the program may exit without reading it
+        output.stdin = child.stdin;
+      }
       let timedOut = false;
       let stderrTail = "";
       const seconds = opts.timeout != null ? opts.timeout / 1000 : Math.max(0, Number(this.settings.timeout) || 0);
@@ -842,6 +847,7 @@ export default class TahoeRunPlugin extends Plugin {
       child.on("error", (error) => output && output.append("err", String(error.message || error)));
       child.on("close", (code, signal) => {
         if (timer) window.clearTimeout(timer);
+        if (output && output.stdin === child.stdin) output.stdin = null;
         if (timedOut && output) output.append("info", `\nStopped after ${seconds} s (time limit).`);
         // Exit 127 with a "not found" line that names the command itself: the tool
         // isn't installed (not a command the script ran that's missing).
@@ -956,6 +962,7 @@ export default class TahoeRunPlugin extends Plugin {
     this.debugSpecs.set(block.sourcePath, specs);
     const result = await kernel.execute(block.code, output, specs);
     output.sessionEnded = !!result.dead; // restarted or quit mid-run: nothing worth keeping
+    output.input = null;
     if (result.result != null) output.append("result", result.result);
     for (const fig of result.figures || []) output.images.push(figureUrl(fig));
     output.kernel = { cell: result.cell || null, python: kernel.version };

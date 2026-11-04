@@ -26,6 +26,8 @@ class RunOutput {
     this.label = "";
     this.phase = "";
     this.parts = []; // { stream: "out" | "err" | "info" | "result", text }
+    this.input = null; // { prompt, password, reply(value | null) } while Python waits for a typed line
+    this.stdin = null; // a running program's stdin, for the input field
     this.length = 0;
     this.truncated = false;
     this.images = [];
@@ -226,6 +228,51 @@ function createCard(plugin, output, block) {
 
   const body = el.appendChild(document.createElement("pre"));
   body.className = "tahoe-run-output-body";
+
+  // A line for the program: Python's input(), or a running program's stdin.
+  const inputBar = el.appendChild(document.createElement("div"));
+  inputBar.className = "tahoe-run-input";
+  const inputField = inputBar.appendChild(document.createElement("input"));
+  inputField.type = "text";
+  inputField.className = "tahoe-run-input-field";
+  inputField.setAttribute("aria-label", "Input for the program");
+  const endBtn = inputBar.appendChild(document.createElement("button"));
+  endBtn.className = "tahoe-run-chip";
+  endBtn.textContent = "End input";
+  endBtn.setAttribute("aria-label", "End input, like Control-D in a terminal");
+  const sendLine = (value) => {
+    if (output.input) {
+      const ask = output.input;
+      output.input = null;
+      ask.reply(value);
+    } else if (output.stdin && output.stdin.writable) {
+      if (value === null) output.stdin.end();
+      else {
+        output.stdin.write(`${value}\n`);
+        output.append("out", `${value}\n`); // as a terminal shows what you type
+      }
+    }
+    inputField.value = "";
+    output.changed();
+  };
+  inputField.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      sendLine(inputField.value);
+    } else if (e.key === "d" && e.ctrlKey) {
+      e.preventDefault();
+      sendLine(null);
+    }
+    e.stopPropagation();
+  });
+  endBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sendLine(null);
+  });
+  let askedFor = null;
+  let inputTimer = 0;
+
   const figures = el.appendChild(document.createElement("div"));
   figures.className = "tahoe-run-figures";
 
@@ -415,9 +462,29 @@ function createCard(plugin, output, block) {
       }, 250);
     }
     if (o.status === "running") body.scrollTop = body.scrollHeight;
+
+    // The input field: when Python asks for a line, or while a program runs (it may read stdin).
+    const waiting = o.status === "running" && (!!o.input || (!!o.stdin && Date.now() - o.startedAt > 400));
+    if (o.status === "running" && o.stdin && !waiting && !inputTimer) {
+      // Quiet programs don't re-render the card, so look again when the field is due.
+      inputTimer = window.setTimeout(() => {
+        inputTimer = 0;
+        output.changed();
+      }, Math.max(50, 420 - (Date.now() - o.startedAt)));
+    }
+    inputBar.toggle(waiting);
+    if (waiting) {
+      inputField.type = o.input && o.input.password ? "password" : "text";
+      inputField.placeholder = o.input ? (o.input.prompt.trim() ? `${o.input.prompt.trim()} — Enter sends it` : "Python is waiting for a line — Enter sends it") : "Input for the program — Enter sends a line";
+      if (o.input && askedFor !== o.input) {
+        askedFor = o.input;
+        window.setTimeout(() => inputField.focus(), 0);
+      }
+    }
   };
 
   const destroy = () => {
+    window.clearTimeout(inputTimer);
     if (renderComponent) renderComponent.unload();
     window.clearInterval(ticker);
     window.clearTimeout(renderTimer);

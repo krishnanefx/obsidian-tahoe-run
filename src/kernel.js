@@ -114,6 +114,20 @@ class PythonKernel {
         this.current.result = message;
         this.maybeFinish();
       }
+    } else if (message.type === "input") {
+      // input() in the cell: the card shows a field, and the line goes back as a command.
+      const job = this.current;
+      if (job && message.id === job.id) {
+        job.output.input = {
+          prompt: String(message.prompt || ""),
+          password: !!message.password,
+          reply: (value) => {
+            if (this.current !== job) return;
+            this.send(value === null ? { type: "input-reply", cancel: true } : { type: "input-reply", value: String(value) });
+          },
+        };
+        job.output.changed();
+      }
     } else if (message.type === "paused") {
       this.state = "paused";
       this.paused = message;
@@ -151,6 +165,7 @@ class PythonKernel {
     if (!cur || !cur.result) return;
     window.clearTimeout(cur.grace);
     this.current = null;
+    cur.output.input = null;
     this.state = "idle";
     this.cells = cur.result.cell || this.cells + 1;
     this.lastUsed = Date.now();

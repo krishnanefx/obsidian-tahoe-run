@@ -29,13 +29,86 @@ COMMANDS = os.fdopen(os.dup(0), "r") if KERNEL else None
 
 
 def _no_input(prompt=""):
-    raise EOFError("input() isn't available in notebook cells. Put test data in a variable instead.")
+    raise EOFError("input() isn't available here. Put test data in a variable instead.")
+
+
+CURRENT = {"id": None}  # the running cell's id, for messages sent while it runs
+
+
+def ask_input(prompt="", password=False):
+    """A line typed into the field the plugin shows under the block; None if
+    the person ends input instead. stdin carries the commands, so the question
+    goes out on the protocol and the reply comes back as a command."""
+    flush_streams()
+    if prompt:
+        sys.stdout.write(str(prompt))
+        flush_streams()
+    send({"type": "input", "id": CURRENT["id"], "prompt": str(prompt), "password": bool(password)})
+    while True:
+        line = COMMANDS.readline()
+        if not line:
+            return None
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if message.get("type") == "input-reply":
+            if message.get("cancel"):
+                sys.stdout.write("\n")
+                flush_streams()
+                return None
+            value = str(message.get("value", ""))
+            # Echo it, as a terminal would (not a password).
+            sys.stdout.write(("" if password else value) + "\n")
+            flush_streams()
+            return value
+        answer(message)  # hover values and the variables view keep working
+
+
+def _kernel_input(prompt=""):
+    value = ask_input(prompt)
+    if value is None:
+        raise EOFError("No input")
+    return value
+
+
+def _kernel_getpass(prompt="Password: ", stream=None):
+    value = ask_input(prompt, password=True)
+    if value is None:
+        raise EOFError("No input")
+    return value
+
+
+class _CellStdin(io.TextIOBase):
+    # sys.stdin for cells: each line is asked for; ending input is end of file.
+    def readable(self):
+        return True
+
+    def isatty(self):
+        return False
+
+    def readline(self, size=-1):
+        value = ask_input("")
+        return "" if value is None else value + "\n"
+
+    def read(self, size=-1):
+        lines = []
+        while True:
+            line = self.readline()
+            if not line:
+                return "".join(lines)
+            lines.append(line)
 
 
 if KERNEL:
-    # Cells can't read from stdin (it carries the commands).
-    sys.stdin = io.StringIO("")
-    builtins.input = _no_input
+    # stdin carries the commands, so cells read through the protocol instead.
+    sys.stdin = _CellStdin()
+    builtins.input = _kernel_input
+    try:
+        import getpass
+        getpass.getpass = _kernel_getpass
+    except Exception:
+        pass
 
 NAMESPACE = {"__name__": "__main__", "__builtins__": builtins}
 CELL_COUNTER = [0]
@@ -270,7 +343,11 @@ def start_debugger(debugger):
 
 
 def execute(cell_id, code, breakpoints=None):
-    result = run_cell(code, breakpoints, cell_id)
+    CURRENT["id"] = cell_id
+    try:
+        result = run_cell(code, breakpoints, cell_id)
+    finally:
+        CURRENT["id"] = None
     # End-of-cell markers on both output pipes let the plugin know it has
     # every byte the cell printed before it finishes the cell.
     marker = ("\x1eTAHOE-DONE:%s\x1e" % cell_id).encode()

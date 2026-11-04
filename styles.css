@@ -1128,3 +1128,19 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
 .tahoe-run-wide-input {
   width: 100%;
 }
+
+/* ---- A line for the program: input() and stdin ---- */
+.tahoe-run-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.tahoe-run-input-field {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+}
+
