@@ -174,11 +174,12 @@ test("Kotlin: runs as a script", async () => {
   eq([o.status, streams(o, "out")], ["success", "[2, 4, 6]\n"]);
 });
 
+// GHC's first compile on a fresh machine (GitHub's runner) takes well over 20 s.
 test("Haskell: runs", async () => {
   await needs("haskell");
-  const o = await runBlock("haskell", "main :: IO ()\nmain = print (sum [1 .. 10 :: Int])");
+  const o = await runBlock("haskell", "main :: IO ()\nmain = print (sum [1 .. 10 :: Int])", { timeout: 100 });
   eq([o.status, streams(o, "out")], ["success", "55\n"]);
-});
+}, { timeout: 120000 });
 
 /* ======================================================================== */
 /* Interpreted languages                                                      */
