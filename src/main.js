@@ -964,6 +964,7 @@ export default class TahoeRunPlugin extends Plugin {
     output.sessionEnded = !!result.dead; // restarted or quit mid-run: nothing worth keeping
     output.input = null;
     if (result.result != null) output.append("result", result.result);
+    for (const item of result.displays || []) output.pushDisplay(item);
     for (const fig of result.figures || []) output.images.push(figureUrl(fig));
     output.kernel = { cell: result.cell || null, python: kernel.version };
     output.exitCode = result.ok ? 0 : 1;

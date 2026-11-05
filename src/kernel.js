@@ -9,7 +9,8 @@ import { fs, path, os, childProcess } from "./node";
 
 // Replies are framed by the record separator (U+001E), which never appears in output.
 const RS = String.fromCharCode(0x1e);
-const MARKER = new RegExp(`${RS}TAHOE-DONE:([^${RS}]*)${RS}`);
+// On stdout and stderr: the end of a cell, and where each rich output (display()) goes.
+const MARKER = new RegExp(`${RS}TAHOE-(DONE|DISPLAY):([^${RS}]*)${RS}`);
 
 let kernelFile = null;
 function kernelScript() {
@@ -85,7 +86,11 @@ class PythonKernel {
       if (m) {
         this.emitText(name, stream.buffer.slice(0, m.index));
         stream.buffer = stream.buffer.slice(m.index + m[0].length);
-        stream.done = m[1];
+        if (m[1] === "DISPLAY") {
+          if (this.current) this.current.output.markDisplay(Number(m[2]));
+          continue;
+        }
+        stream.done = m[2];
         this.maybeFinish();
         continue;
       }
@@ -114,6 +119,8 @@ class PythonKernel {
         this.current.result = message;
         this.maybeFinish();
       }
+    } else if (message.type === "display") {
+      if (this.current && message.id === this.current.id) this.current.output.addDisplay(Number(message.n), message.item);
     } else if (message.type === "input") {
       // input() in the cell: the card shows a field, and the line goes back as a command.
       const job = this.current;

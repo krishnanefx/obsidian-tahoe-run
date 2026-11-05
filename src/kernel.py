@@ -262,6 +262,224 @@ def collect_figures():
     return figures
 
 
+# ---- Rich output: tables, HTML, Markdown, LaTeX, images ------------------------
+# display(x), and a cell's last value, show x the richest way it can: a pandas
+# DataFrame or Series as a table, and
+# anything with _repr_html_, _repr_markdown_, _repr_latex_, _repr_svg_,
+# _repr_png_ or _repr_jpeg_ (IPython's display objects, SymPy expressions,
+# DataFrame.style…) as that. Each one goes to the plugin as soon as it's shown,
+# with a marker on stdout where it happened, so it lands in order among the
+# cell's printed lines. Without pipes (Pyodide) they come back with the result.
+
+DISPLAYS = []  # the running cell's rich outputs, in order
+MAX_HTML = 4 * 1024 * 1024
+OUTPUT_ROWS = 60  # a table shown as output; the variables view's sheet shows more
+
+
+def _as_text(data):
+    if isinstance(data, bytes):
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    return data if isinstance(data, str) else None
+
+
+def _as_b64(data):
+    if isinstance(data, bytes):
+        return base64.b64encode(data).decode("ascii")
+    if isinstance(data, str):
+        return data.strip()  # IPython gives base64 text
+    return None
+
+
+def _html(data):
+    text = _as_text(data)
+    return {"kind": "html", "html": text} if text and len(text) <= MAX_HTML else None
+
+
+def _markdown(data):
+    text = _as_text(data)
+    return {"kind": "markdown", "text": text} if text else None
+
+
+def _latex(data):
+    text = _as_text(data)
+    if not text:
+        return None
+    text = text.strip()
+    for fence in ("$$", "$"):
+        if text.startswith(fence) and text.endswith(fence) and len(text) > 2 * len(fence):
+            text = text[len(fence):-len(fence)].strip()
+            break
+    return {"kind": "latex", "text": text}
+
+
+def _svg(data):
+    text = _as_text(data)
+    return {"kind": "image", "mime": "image/svg+xml", "data": base64.b64encode(text.encode("utf-8")).decode("ascii")} if text else None
+
+
+def _image(mime):
+    def make(data):
+        b64 = _as_b64(data)
+        return {"kind": "image", "mime": mime, "data": b64} if b64 else None
+    return make
+
+
+RICH_METHODS = [
+    ("_repr_html_", _html),
+    ("_repr_markdown_", _markdown),
+    ("_repr_latex_", _latex),
+    ("_repr_svg_", _svg),
+    ("_repr_png_", _image("image/png")),
+    ("_repr_jpeg_", _image("image/jpeg")),
+]
+
+
+def rich_item(value):
+    """How to show a value richly, or None to show its repr as text."""
+    if value is None or isinstance(value, (str, bytes, bytearray, int, float, complex, bool, type)):
+        return None
+    module = type(value).__module__ or ""
+    kind = type(value).__name__
+    try:
+        if module.startswith("pandas") and kind in ("DataFrame", "Series"):
+            return {"kind": "table", "table": table_from(value, "", OUTPUT_ROWS)}
+    except Exception:
+        pass
+    for method, make in RICH_METHODS:
+        try:
+            fn = getattr(value, method, None)
+            if not callable(fn):
+                continue
+            data = fn()
+            if isinstance(data, tuple) and data:
+                data = data[0]  # (data, metadata)
+            item = make(data) if data is not None else None
+        except Exception:
+            continue
+        if item:
+            return item
+    return None
+
+
+def show_rich(item):
+    DISPLAYS.append(item)
+    if KERNEL and CURRENT["id"] is not None:
+        flush_streams()
+        n = len(DISPLAYS)
+        send({"type": "display", "id": CURRENT["id"], "n": n, "item": item})
+        os.write(1, ("\x1eTAHOE-DISPLAY:%d\x1e" % n).encode())
+
+
+def display(*objs, **kwargs):
+    """Show each value the richest way it can (like Jupyter's display())."""
+    for obj in objs:
+        item = rich_item(obj)
+        if item is None:
+            print(short_repr(obj))
+        else:
+            show_rich(item)
+
+
+builtins.display = display
+
+
+class _Rich:
+    # IPython.display's classes, for when IPython isn't installed.
+    method = None
+
+    def __init__(self, data=None, url=None, filename=None, **kwargs):
+        if filename:
+            with open(filename, "rb" if self.binary else "r") as f:
+                data = f.read()
+        self.data = data
+
+    binary = False
+
+    def __repr__(self):
+        return "<%s>" % type(self).__name__
+
+
+def _rich_class(name, method, binary=False):
+    cls = type(name, (_Rich,), {"binary": binary})
+    setattr(cls, method, lambda self: self.data)
+    return cls
+
+
+def _shim_ipython():
+    """A small IPython.display, so notebook code that imports it runs here."""
+    if "IPython" in sys.modules:
+        return
+    try:
+        import importlib.util
+        if importlib.util.find_spec("IPython") is not None:
+            return
+    except Exception:
+        pass
+    package = types.ModuleType("IPython")
+    module = types.ModuleType("IPython.display")
+    module.display = display
+    module.HTML = _rich_class("HTML", "_repr_html_")
+    module.Markdown = _rich_class("Markdown", "_repr_markdown_")
+    module.Latex = _rich_class("Latex", "_repr_latex_")
+    module.Math = type("Math", (_Rich,), {"_repr_latex_": lambda self: "$$%s$$" % self.data})
+    module.SVG = _rich_class("SVG", "_repr_svg_")
+    module.Image = type("Image", (_Rich,), {"binary": True, "_repr_png_": lambda self: self.data})
+    module.JSON = type("JSON", (_Rich,), {"_repr_markdown_": lambda self: "```json\n%s\n```" % json.dumps(self.data, indent=2, default=str)})
+    module.clear_output = lambda wait=False: None
+    package.display = module
+    package.__path__ = []
+    sys.modules["IPython"] = package
+    sys.modules["IPython.display"] = module
+
+
+_shim_ipython()
+
+
+def _patch_ipython_display(module):
+    module.display = display
+
+
+class _AfterImport:
+    # Patch a module as soon as a cell imports it (IPython's display).
+    def __init__(self, patches):
+        self.patches = dict(patches)
+
+    def find_spec(self, name, path=None, target=None):
+        patch = self.patches.pop(name, None)
+        if patch is None:
+            return None
+        import importlib.util
+        sys.meta_path.remove(self)
+        try:
+            spec = importlib.util.find_spec(name)
+        finally:
+            if self.patches:
+                sys.meta_path.insert(0, self)
+        if spec is None or spec.loader is None:
+            return spec
+        original = spec.loader.exec_module
+
+        def exec_module(module):
+            original(module)
+            try:
+                patch(module)
+            except Exception:
+                pass
+
+        spec.loader.exec_module = exec_module
+        return spec
+
+
+sys.meta_path.insert(0, _AfterImport({
+    "IPython.display": _patch_ipython_display,
+    "IPython.core.display_functions": _patch_ipython_display,
+}))
+
+
+
 def short_repr(value, limit=4000):
     try:
         text = repr(value)
@@ -381,6 +599,7 @@ def run_cell(code, breakpoints=None, cell_id=None, namespace=None):
     result = None
     ok = True
     error = None
+    del DISPLAYS[:]
     try:
         tree = ast.parse(code, filename=filename, mode="exec")
         last_expr = None
@@ -396,7 +615,11 @@ def run_cell(code, breakpoints=None, cell_id=None, namespace=None):
                 sys.settrace(None)
         if value is not None:
             ns["_"] = value
-            result = short_repr(value)
+            item = rich_item(value)
+            if item is None:
+                result = short_repr(value)
+            else:
+                show_rich(item)
     except bdb.BdbQuit:
         ok = False
         error = {"ename": "Stopped", "evalue": "Debugging stopped"}
@@ -428,6 +651,8 @@ def run_cell(code, breakpoints=None, cell_id=None, namespace=None):
         "error": error,
         "result": result,
         "figures": collect_figures(),
+        # Sent as they happened when there are pipes; returned here when not (Pyodide).
+        "displays": [] if KERNEL and CURRENT["id"] is not None else DISPLAYS[:],
         "cell": CELL_COUNTER[0],
         "duration": time.perf_counter() - started,
     }
@@ -517,22 +742,26 @@ def table_of(expr, namespace=None):
     ns = NAMESPACE if namespace is None else namespace
     if not re.match(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$", expr or "") or expr.split(".")[0] not in ns:
         return None
-    value = eval(expr, ns)
-    out = {"name": expr, "type": type_name(value), "size": size_of(value), "columns": [], "rows": [], "truncated": False, "note": ""}
+    return table_from(eval(expr, ns), expr)
+
+
+def table_from(value, name, max_rows=None):
+    max_rows = max_rows or MAX_ROWS
+    out = {"name": name, "type": type_name(value), "size": size_of(value), "columns": [], "rows": [], "truncated": False, "note": ""}
     module = type(value).__module__ or ""
     kind = type(value).__name__
     if module.startswith("pandas") and kind == "DataFrame":
         cols = list(value.columns[:MAX_COLS])
         out["columns"] = [str(value.index.name or "")] + [str(c) for c in cols]
-        part = value.iloc[:MAX_ROWS, :MAX_COLS]
+        part = value.iloc[:max_rows, :MAX_COLS]
         for idx, row in zip(part.index, part.itertuples(index=False)):
             out["rows"].append([cell_text(idx)] + [cell_text(x) for x in row])
-        out["truncated"] = value.shape[0] > MAX_ROWS or value.shape[1] > MAX_COLS
+        out["truncated"] = value.shape[0] > max_rows or value.shape[1] > MAX_COLS
     elif module.startswith("pandas") and kind == "Series":
         out["columns"] = [str(value.index.name or ""), str(value.name if value.name is not None else "value")]
-        for idx, x in zip(value.index[:MAX_ROWS], value.iloc[:MAX_ROWS]):
+        for idx, x in zip(value.index[:max_rows], value.iloc[:max_rows]):
             out["rows"].append([cell_text(idx), cell_text(x)])
-        out["truncated"] = len(value) > MAX_ROWS
+        out["truncated"] = len(value) > max_rows
     elif hasattr(value, "shape") and hasattr(value, "ndim") and hasattr(value, "tolist"):
         array = value
         if array.ndim == 0:
@@ -543,22 +772,22 @@ def table_of(expr, namespace=None):
                 array = array[(0,) * (array.ndim - 2)]
             if array.ndim == 1:
                 out["columns"] = ["", "value"]
-                for i, x in enumerate(array[:MAX_ROWS].tolist()):
+                for i, x in enumerate(array[:max_rows].tolist()):
                     out["rows"].append([str(i), cell_text(x)])
-                out["truncated"] = array.shape[0] > MAX_ROWS
+                out["truncated"] = array.shape[0] > max_rows
             else:
                 out["columns"] = [""] + [str(j) for j in range(min(array.shape[1], MAX_COLS))]
-                for i, row in enumerate(array[:MAX_ROWS, :MAX_COLS].tolist()):
+                for i, row in enumerate(array[:max_rows, :MAX_COLS].tolist()):
                     out["rows"].append([str(i)] + [cell_text(x) for x in row])
-                out["truncated"] = array.shape[0] > MAX_ROWS or array.shape[1] > MAX_COLS
+                out["truncated"] = array.shape[0] > max_rows or array.shape[1] > MAX_COLS
     elif isinstance(value, dict):
         out["columns"] = ["key", "value"]
-        for k, v in list(value.items())[:MAX_ROWS]:
+        for k, v in list(value.items())[:max_rows]:
             out["rows"].append([cell_text(k), cell_text(v)])
-        out["truncated"] = len(value) > MAX_ROWS
+        out["truncated"] = len(value) > max_rows
     elif isinstance(value, (list, tuple, set, frozenset)):
-        items = list(value)[:MAX_ROWS]
-        out["truncated"] = len(value) > MAX_ROWS
+        items = list(value)[:max_rows]
+        out["truncated"] = len(value) > max_rows
         if items and all(isinstance(x, dict) for x in items):
             keys = []
             for x in items:
@@ -579,7 +808,7 @@ def table_of(expr, namespace=None):
                 out["rows"].append([str(i), cell_text(x)])
     elif isinstance(getattr(value, "__dict__", None), dict):
         out["columns"] = ["attribute", "value"]
-        for k, v in list(vars(value).items())[:MAX_ROWS]:
+        for k, v in list(vars(value).items())[:max_rows]:
             if not k.startswith("__"):
                 out["rows"].append([k, cell_text(v)])
     else:

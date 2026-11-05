@@ -112,6 +112,73 @@ def done(messages):
     return messages[-1]
 
 
+class RichOutput(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.k = Kernel()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.k.close()
+
+    def test_display_goes_between_printed_lines(self):
+        msgs, out = self.k.run("class A:\n    def _repr_html_(self):\n        return '<b>hi</b>'\nprint('one')\ndisplay(A())\nprint('two')")
+        self.assertEqual(out, "one\n\x1eTAHOE-DISPLAY:1\x1etwo\n")
+        self.assertEqual([(d["n"], d["item"]) for d in displays(msgs)], [(1, {"kind": "html", "html": "<b>hi</b>"})])
+
+    def test_a_rich_last_value_is_shown_not_repr(self):
+        msgs, out = self.k.run("class M:\n    def _repr_markdown_(self):\n        return '**md**'\nM()")
+        self.assertIsNone(done(msgs)["result"])
+        self.assertEqual(displays(msgs)[0]["item"], {"kind": "markdown", "text": "**md**"})
+
+    def test_plain_values_stay_text(self):
+        msgs, out = self.k.run("[1, 2, 3]")
+        self.assertEqual(done(msgs)["result"], "[1, 2, 3]")
+        self.assertEqual(displays(msgs), [])
+        msgs, out = self.k.run("display(3, 'text')")
+        self.assertEqual(out, "3\n'text'\n")  # like Jupyter: plain values as their repr
+
+    def test_latex_and_images(self):
+        code = (
+            "class L:\n    def _repr_latex_(self):\n        return '$$x^2$$'\n"
+            "class P:\n    def _repr_png_(self):\n        return b'\\x89PNG'\n"
+            "class S:\n    def _repr_svg_(self):\n        return '<svg/>'\n"
+            "display(L(), P(), S())"
+        )
+        items = [d["item"] for d in displays(self.k.run(code)[0])]
+        self.assertEqual(items[0], {"kind": "latex", "text": "x^2"})
+        self.assertEqual(items[1], {"kind": "image", "mime": "image/png", "data": "iVBORw=="})
+        self.assertEqual(items[2]["mime"], "image/svg+xml")
+
+    def test_a_broken_repr_falls_through(self):
+        code = "class B:\n    def _repr_html_(self):\n        raise ValueError('no')\n    def _repr_markdown_(self):\n        return 'fine'\nB()"
+        self.assertEqual(displays(self.k.run(code)[0])[0]["item"], {"kind": "markdown", "text": "fine"})
+
+    def test_ipython_display_classes(self):
+        # IPython's own classes when it's installed, the kernel's small stand-ins when not.
+        msgs, _ = self.k.run("from IPython.display import HTML, Markdown, display\ndisplay(HTML('<i>x</i>'), Markdown('**y**'))")
+        self.assertTrue(done(msgs)["ok"], done(msgs)["error"])
+        self.assertEqual([d["item"]["kind"] for d in displays(msgs)], ["html", "markdown"])
+
+    @unittest.skipUnless(have("pandas"), "needs pandas")
+    def test_dataframes_are_tables(self):
+        msgs, _ = self.k.run("import pandas as pd\ndf = pd.DataFrame({'x': range(100), 'y': [i * i for i in range(100)]})\ndf")
+        table = displays(msgs)[0]["item"]["table"]
+        self.assertEqual(table["columns"], ["", "x", "y"])
+        self.assertEqual(len(table["rows"]), 60)  # OUTPUT_ROWS; the variables view's sheet shows more
+        self.assertEqual(table["rows"][3], ["3", "3", "9"])
+        self.assertTrue(table["truncated"])
+        self.assertEqual(table["size"], "100×2")
+
+    @unittest.skipUnless(have("plotly", "pandas"), "needs plotly and pandas")
+    @unittest.skipUnless(have("sympy"), "needs sympy")
+    def test_sympy_as_latex(self):
+        msgs, _ = self.k.run("import sympy as sp\nx = sp.symbols('x')\nsp.Rational(1, 2) * x ** 2")
+        item = displays(msgs)[0]["item"]
+        self.assertEqual(item["kind"], "latex")
+        self.assertIn("frac{x^{2}}{2}", item["text"])
+
+
 class Input(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

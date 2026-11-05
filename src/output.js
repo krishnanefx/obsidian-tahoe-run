@@ -5,6 +5,7 @@ import { missingModule, pipNameFor } from "./pipnames";
 import { Notice, MarkdownRenderer, Component, setIcon } from "obsidian";
 import { formatDuration } from "./blocks";
 import { renderChart, verdictText } from "./complexity";
+import { RichOutputs } from "./rich";
 
 const MAX_OUTPUT = 400000;
 const EXPLANATION_MARK = "#tahoe-explanation";
@@ -25,7 +26,8 @@ class RunOutput {
     this.status = "idle"; // idle | running | success | error | stopped | timeout
     this.label = "";
     this.phase = "";
-    this.parts = []; // { stream: "out" | "err" | "info" | "result", text }
+    this.parts = []; // { stream: "out" | "err" | "info" | "result" | "display", text, n }
+    this.displays = new Map(); // n -> rich output (a table, HTML, a chart…), placed by its "display" part
     this.input = null; // { prompt, password, reply(value | null) } while Python waits for a typed line
     this.stdin = null; // a running program's stdin, for the input field
     this.length = 0;
@@ -71,6 +73,29 @@ class RunOutput {
 
   text() {
     return this.parts.map((p) => p.text).join("");
+  }
+
+  // Rich output n is shown here, among the printed lines.
+  markDisplay(n) {
+    this.parts.push({ stream: "display", n, text: "" });
+    this.changed();
+  }
+
+  addDisplay(n, item) {
+    this.displays.set(n, item);
+    this.changed();
+  }
+
+  // Both at once, at the end (Pyodide returns them with the result).
+  pushDisplay(item) {
+    const n = this.displays.size + 1;
+    this.addDisplay(n, item);
+    this.markDisplay(n);
+  }
+
+  // The items shown, in order.
+  displayItems() {
+    return this.parts.filter((p) => p.stream === "display" && this.displays.has(p.n)).map((p) => this.displays.get(p.n));
   }
 
   failed() {
@@ -226,8 +251,13 @@ function createCard(plugin, output, block) {
     });
   }
 
-  const body = el.appendChild(document.createElement("pre"));
+  // The printed text and the rich output (tables, HTML, charts) in the order
+  // they came: a <pre> for each run of text, with rich output between.
+  const content = el.appendChild(document.createElement("div"));
+  content.className = "tahoe-run-output-content";
+  const body = content.appendChild(document.createElement("pre"));
   body.className = "tahoe-run-output-body";
+  const rich = new RichOutputs(plugin, block, EXPLANATION_MARK);
 
   // A line for the program: Python's input(), or a running program's stdin.
   const inputBar = el.appendChild(document.createElement("div"));
@@ -341,45 +371,11 @@ function createCard(plugin, output, block) {
     MarkdownRenderer.render(plugin.app, tidy, exBody, `${block.sourcePath()}${EXPLANATION_MARK}`, renderComponent);
   };
 
-  let ticker = 0;
-  const render = (o) => {
-    el.dataset.status = o.status;
-    el.classList.toggle("is-empty", o.parts.length === 0 && o.images.length === 0);
-    // Once it's saved in the note, the note shows the output; the card keeps its header.
-    el.classList.toggle("is-saved", !!o.saved && !o.explain);
-    el.classList.toggle("has-chart", !!o.chart);
-    meta.textContent = describe(o);
-    closeBtn.toggle(o.status !== "running");
-    copyBtn.toggle(o.parts.length > 0);
-    restartBtn.toggle(!!(o.kernel && o.status !== "running"));
-    explainBtn.toggle(!!(o.failed() && !o.chart && !o.explain && plugin.explainer));
-    debugBar.toggle(!!o.debug);
-    el.classList.toggle("is-paused", !!o.debug);
-    if (o.debug) where.textContent = `Paused at line ${o.debug.line}${o.debug.fn && o.debug.fn !== "<module>" ? ` in ${o.debug.fn}()` : ""}`;
-    const missing = o.failed() && o.label === "Python" && missingModule(o.text());
-    const pkg = missing && pipNameFor(missing);
-    installBtn.toggle(!!(pkg && plugin.installMissing && !plugin.usePyodide));
-    if (pkg) installLabel.textContent = `Install ${pkg}`;
-
-    body.textContent = "";
-    const linkable = o.failed() || o.parts.some((p) => p.stream === "err");
-    const pieces = [];
-    for (const part of o.parts) {
-      const text = (part.stream === "result" ? `${part.text}\n` : part.text).replace(/\r/g, "");
-      if (part.stream !== "err" || !PROGRESS.test(text)) {
-        pieces.push({ stream: part.stream, text });
-        continue;
-      }
-      // Progress lines in grey, the rest of stderr as it was.
-      for (const line of text.match(/[^\n]*\n|[^\n]+$/g) || []) {
-        const stream = PROGRESS.test(line) ? "progress" : "err";
-        const prev = pieces[pieces.length - 1];
-        if (prev && prev.stream === stream) prev.text += line;
-        else pieces.push({ stream, text: line });
-      }
-    }
-    for (const part of pieces) {
-      const span = body.appendChild(document.createElement("span"));
+  // A run of text, with "line 3" and "main.cpp:3:14" as links to the block's lines.
+  const fillText = (target, list, o, linkable) => {
+    target.textContent = "";
+    for (const part of list) {
+      const span = target.appendChild(document.createElement("span"));
       span.className = `tahoe-run-${part.stream}`;
       const text = part.text;
       const refs = linkable && part.stream !== "result" ? findLineRefs(text) : [];
@@ -404,13 +400,80 @@ function createCard(plugin, output, block) {
       }
       span.appendChild(document.createTextNode(text.slice(at)));
     }
+  };
+
+  let ticker = 0;
+  const render = (o) => {
+    el.dataset.status = o.status;
+    el.classList.toggle("is-empty", o.parts.length === 0 && o.images.length === 0);
+    // Once it's saved in the note, the note shows the output; the card keeps its header.
+    el.classList.toggle("is-saved", !!o.saved && !o.explain);
+    el.classList.toggle("has-chart", !!o.chart);
+    meta.textContent = describe(o);
+    closeBtn.toggle(o.status !== "running");
+    copyBtn.toggle(o.parts.length > 0);
+    restartBtn.toggle(!!(o.kernel && o.status !== "running"));
+    explainBtn.toggle(!!(o.failed() && !o.chart && !o.explain && plugin.explainer));
+    debugBar.toggle(!!o.debug);
+    el.classList.toggle("is-paused", !!o.debug);
+    if (o.debug) where.textContent = `Paused at line ${o.debug.line}${o.debug.fn && o.debug.fn !== "<module>" ? ` in ${o.debug.fn}()` : ""}`;
+    const missing = o.failed() && o.label === "Python" && missingModule(o.text());
+    const pkg = missing && pipNameFor(missing);
+    installBtn.toggle(!!(pkg && plugin.installMissing && !plugin.usePyodide));
+    if (pkg) installLabel.textContent = `Install ${pkg}`;
+
+    const linkable = o.failed() || o.parts.some((p) => p.stream === "err");
+    const pieces = [];
+    for (const part of o.parts) {
+      if (part.stream === "display") {
+        pieces.push(part);
+        continue;
+      }
+      const text = (part.stream === "result" ? `${part.text}\n` : part.text).replace(/\r/g, "");
+      if (part.stream !== "err" || !PROGRESS.test(text)) {
+        pieces.push({ stream: part.stream, text });
+        continue;
+      }
+      // Progress lines in grey, the rest of stderr as it was.
+      for (const line of text.match(/[^\n]*\n|[^\n]+$/g) || []) {
+        const stream = PROGRESS.test(line) ? "progress" : "err";
+        const prev = pieces[pieces.length - 1];
+        if (prev && prev.stream === stream) prev.text += line;
+        else pieces.push({ stream, text: line });
+      }
+    }
+    // Runs of text become <pre>s, with each rich output between them.
+    const segments = [];
+    for (const piece of pieces) {
+      if (piece.stream === "display") segments.push({ display: piece.n });
+      else if (segments.length && segments[segments.length - 1].pieces) segments[segments.length - 1].pieces.push(piece);
+      else segments.push({ pieces: [piece] });
+    }
+    if (!segments.length || !segments[0].pieces) segments.unshift({ pieces: [] });
+    rich.reset(o);
+    let pre = body;
+    let at = 0;
+    for (const seg of segments) {
+      const existing = content.children[at];
+      if (seg.display) {
+        const node = rich.element(seg.display, o.displays.get(seg.display));
+        if (existing !== node) content.insertBefore(node, existing || null);
+      } else {
+        pre = at === 0 ? body : existing && existing.tagName === "PRE" ? existing : content.insertBefore(document.createElement("pre"), existing || null);
+        pre.className = "tahoe-run-output-body";
+        pre.classList.toggle("is-blank", at > 0 && !seg.pieces.some((x) => x.text.trim()));
+        fillText(pre, seg.pieces, o, linkable);
+      }
+      at++;
+    }
+    while (content.children.length > at) content.lastChild.remove();
     if (o.truncated) {
-      const span = body.appendChild(document.createElement("span"));
+      const span = pre.appendChild(document.createElement("span"));
       span.className = "tahoe-run-info";
       span.textContent = "\n… output truncated";
     }
     if (o.status !== "running" && o.status !== "idle" && !o.parts.length && !o.images.length && !o.chart) {
-      const span = body.appendChild(document.createElement("span"));
+      const span = pre.appendChild(document.createElement("span"));
       span.className = "tahoe-run-info";
       span.textContent = "No output";
     }
@@ -461,7 +524,7 @@ function createCard(plugin, output, block) {
         meta.textContent = describe(output);
       }, 250);
     }
-    if (o.status === "running") body.scrollTop = body.scrollHeight;
+    if (o.status === "running") pre.scrollTop = pre.scrollHeight;
 
     // The input field: when Python asks for a line, or while a program runs (it may read stdin).
     const waiting = o.status === "running" && (!!o.input || (!!o.stdin && Date.now() - o.startedAt > 400));
@@ -484,6 +547,7 @@ function createCard(plugin, output, block) {
   };
 
   const destroy = () => {
+    rich.destroy();
     window.clearTimeout(inputTimer);
     if (renderComponent) renderComponent.unload();
     window.clearInterval(ticker);
