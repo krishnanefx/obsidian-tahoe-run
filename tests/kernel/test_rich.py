@@ -171,6 +171,17 @@ class RichOutput(unittest.TestCase):
         self.assertEqual(table["size"], "100×2")
 
     @unittest.skipUnless(have("plotly", "pandas"), "needs plotly and pandas")
+    def test_plotly_charts(self):
+        msgs, out = self.k.run("import plotly.express as px\nfig = px.bar(x=[1, 2], y=[3, 4])\nfig.show()\nprint('after')")
+        item = displays(msgs)[0]["item"]
+        self.assertEqual(item["kind"], "plotly")
+        self.assertIn('"type":"bar"', item["figure"].replace(" ", ""))
+        self.assertTrue(item["js"] and item["js"].endswith("plotly.min.js") and os.path.isfile(item["js"]))
+        self.assertTrue(out.endswith("after\n"))
+        # A figure as the last value, and plotly.io.show(), show it the same way.
+        self.assertEqual(displays(self.k.run("fig")[0])[0]["item"]["kind"], "plotly")
+        self.assertEqual(displays(self.k.run("import plotly.io as pio\npio.show(fig)")[0])[0]["item"]["kind"], "plotly")
+
     @unittest.skipUnless(have("sympy"), "needs sympy")
     def test_sympy_as_latex(self):
         msgs, _ = self.k.run("import sympy as sp\nx = sp.symbols('x')\nsp.Rational(1, 2) * x ** 2")

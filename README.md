@@ -19,6 +19,7 @@
 - **A variables view**, like MATLAB's Workspace, with sheets for lists, arrays, DataFrames, dicts and MATLAB matrices, structs and tables.
 - **MATLAB** with your own MATLAB and its licence: one session per note, figures under the block, and `drawnow` loops as animations.
 - **Plots and animations** under the block: Matplotlib figures, `FuncAnimation` as looping GIFs, and progress bars that update in place.
+- **Rich output, like Jupyter.** A DataFrame as a block's last line, or `display(df)`, is a table; a Plotly figure (`fig.show()`) is an interactive chart, offline; and anything with an HTML, Markdown or LaTeX form shows that way: SymPy expressions as maths, `df.style` as styled HTML, IPython's `HTML`, `Markdown` and `Math`. It all appears in order among the printed lines.
 - **Input.** `input()`, `getpass()` and `sys.stdin` in Python ask in a field under the block, and C, Java, Go and the other languages' programs read what you type there too.
 - **Packages:** when a block fails with *No module named 'cv2'*, the output offers to install `opencv-python` into the note's Python, then runs the block again.
 - **Jupyter:** export a note as a `.ipynb` notebook (with its outputs and plots), a `.py` script with `# %%` cells or a `.m` script with `%%` sections, and import notebooks and scripts as notes.
@@ -76,6 +77,7 @@ When a block fails, its output gets an **Explain** button: a model reads the cod
   - *Explain with Claude* sends the failing block's code and output to Anthropic's API (api.anthropic.com) with your API key. Apple Intelligence runs on your Mac, and Ollama on your own computer (localhost), so with those your code doesn't leave it.
 - **Files outside your vault:** runs use temporary folders in your system's temp folder. *Choose Python… → New environment* creates it in `~/.virtualenvs`. The Apple Intelligence helper is kept in `~/Library/Caches/tahoe-run`. To list your Pythons, it looks in the usual places they're installed.
 - **Clipboard:** it writes to the clipboard only when you press a Copy button (an output, a sheet as Markdown or CSV, or a prompt for a chat app). It never reads the clipboard.
+- **Rich output** (HTML and Plotly charts from your code) is shown in sandboxed frames: they can't reach your vault, Obsidian or the network. Plotly's own script comes from the plotly package installed in your Python.
 - **No telemetry, ads or accounts.** Claude needs your own Anthropic API key, only if you choose it.
 
 <!-- tahoe-family -->

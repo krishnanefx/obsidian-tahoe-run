@@ -1,20 +1,23 @@
 /*
  * Rich output in the console card: what Python's display() (or a cell's last
  * value) shows richly. A pandas DataFrame or Series is a table, Markdown and
- * LaTeX are rendered like the note, images are images, and HTML goes in a
- * sandboxed frame.
+ * LaTeX are rendered like the note, images are images, and HTML and Plotly
+ * charts go in sandboxed frames.
  *
- * The frames run scripts but have no origin of their own, so they can't
- * reach the vault, Obsidian or the plugin, and their Content-Security-Policy
- * allows no network at all. Each frame reports its height to the card by
- * postMessage.
+ * The frames run scripts (Plotly needs them) but have no origin of their
+ * own, so they can't reach the vault, Obsidian or the plugin, and their
+ * Content-Security-Policy allows no network at all: plotly.js comes from the
+ * Python package that made the chart (plotly.py ships it). Each frame reports
+ * its height to the card by postMessage.
  */
 
-import { MarkdownRenderer, Component } from "obsidian";
+import { MarkdownRenderer, Component, Platform } from "obsidian";
+import { fs } from "./node";
 
 const MAX_FRAME_HEIGHT = 1600;
 const frames = new Map(); // token -> iframe, for height messages
 const listening = new WeakSet(); // windows with a message listener
+const plotlyCache = new Map(); // path -> plotly.min.js
 
 function onFrameMessage(e) {
   const data = e.data;
@@ -52,6 +55,28 @@ function frameDocument(body, theme, token, { allowEval = false } = {}) {
   const style = `html,body{margin:0;background:transparent;color:${theme.text};font-family:${theme.font};font-size:13px;line-height:1.5}body{padding:8px 12px}a{color:${theme.accent}}table{border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{padding:3px 10px;border-bottom:1px solid ${theme.border};text-align:right}th{font-weight:600}pre,code{font-family:${theme.mono}}img{max-width:100%}`;
   const report = `(function(){var t=${JSON.stringify(token)};function s(){parent.postMessage({tahoeRunFrame:t,height:Math.ceil(document.documentElement.scrollHeight)},"*")}addEventListener("load",s);if(window.ResizeObserver)new ResizeObserver(s).observe(document.body);s()})();`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>${style}</style></head><body>${body}<script>${report}</script></body></html>`;
+}
+
+// plotly.js from the Python package that drew the chart.
+function plotlyScript(path) {
+  if (!path || !fs || !Platform.isDesktop) return null;
+  if (!plotlyCache.has(path)) {
+    try {
+      plotlyCache.set(path, fs.readFileSync(path, "utf8").replace(/<\/script/gi, "<\\/script"));
+    } catch {
+      plotlyCache.set(path, null);
+    }
+  }
+  return plotlyCache.get(path);
+}
+
+function plotlyBody(item, theme) {
+  const js = plotlyScript(item.js);
+  if (!js) return null;
+  // JSON can only hold "<" inside strings, where < means the same.
+  const figure = String(item.figure || "{}").replace(/</g, "\\u003c");
+  const dark = theme.dark ? `l.paper_bgcolor=l.paper_bgcolor||"rgba(0,0,0,0)";l.plot_bgcolor=l.plot_bgcolor||"rgba(127,127,127,0.1)";l.font=Object.assign({color:${JSON.stringify(theme.text)}},l.font||{});` : `l.paper_bgcolor=l.paper_bgcolor||"rgba(0,0,0,0)";`;
+  return `<div id="plot"></div><script>${js}</script><script>(function(){var f=${figure};var l=f.layout||{};${dark}Plotly.newPlot("plot",f.data||[],l,{responsive:true,displaylogo:false})})();</script>`;
 }
 
 class RichOutputs {
@@ -113,6 +138,8 @@ class RichOutputs {
           return this.image(item);
         case "html":
           return this.frame(item.html || "", false);
+        case "plotly":
+          return this.plotly(item);
         default:
           return this.note(`(output of a kind this version can't show: ${item.kind})`);
       }
@@ -168,6 +195,21 @@ class RichOutputs {
     return el;
   }
 
+  plotly(item) {
+    const holder = document.createElement("div");
+    holder.className = "tahoe-run-rich tahoe-run-rich-chart";
+    // The theme is only known once the card is on the page.
+    window.setTimeout(() => {
+      const body = plotlyBody(item, themeOf(holder.isConnected ? holder : this.plugin.app.workspace.containerEl));
+      if (!body) {
+        holder.replaceChildren(this.note(Platform.isDesktop ? "This Plotly chart needs plotly.js, which comes with the plotly package; it wasn't found." : "Plotly charts show on the desktop app."));
+        return;
+      }
+      holder.appendChild(this.makeFrame(body, holder, true));
+    }, 0);
+    return holder;
+  }
+
   frame(html, allowEval) {
     const holder = document.createElement("div");
     holder.className = "tahoe-run-rich tahoe-run-rich-html";
@@ -194,4 +236,4 @@ class RichOutputs {
   }
 }
 
-export { RichOutputs, frameDocument };
+export { RichOutputs, frameDocument, plotlyBody };

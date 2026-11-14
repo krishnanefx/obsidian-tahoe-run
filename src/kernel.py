@@ -262,9 +262,9 @@ def collect_figures():
     return figures
 
 
-# ---- Rich output: tables, HTML, Markdown, LaTeX, images ------------------------
+# ---- Rich output: tables, HTML, Markdown, LaTeX, images, Plotly ----------------
 # display(x), and a cell's last value, show x the richest way it can: a pandas
-# DataFrame or Series as a table, and
+# DataFrame or Series as a table, a Plotly figure as an interactive chart, and
 # anything with _repr_html_, _repr_markdown_, _repr_latex_, _repr_svg_,
 # _repr_png_ or _repr_jpeg_ (IPython's display objects, SymPy expressions,
 # DataFrame.style…) as that. Each one goes to the plugin as soon as it's shown,
@@ -274,6 +274,16 @@ def collect_figures():
 DISPLAYS = []  # the running cell's rich outputs, in order
 MAX_HTML = 4 * 1024 * 1024
 OUTPUT_ROWS = 60  # a table shown as output; the variables view's sheet shows more
+
+
+def _plotly_js():
+    # plotly.py ships plotly.js itself, so charts work offline.
+    try:
+        import plotly
+        path = os.path.join(os.path.dirname(plotly.__file__), "package_data", "plotly.min.js")
+        return path if os.path.isfile(path) else None
+    except Exception:
+        return None
 
 
 def _as_text(data):
@@ -344,6 +354,8 @@ def rich_item(value):
     module = type(value).__module__ or ""
     kind = type(value).__name__
     try:
+        if module.startswith("plotly") and hasattr(value, "to_plotly_json") and hasattr(value, "to_json"):
+            return {"kind": "plotly", "figure": value.to_json(), "js": _plotly_js()}
         if module.startswith("pandas") and kind in ("DataFrame", "Series"):
             return {"kind": "table", "table": table_from(value, "", OUTPUT_ROWS)}
     except Exception:
@@ -438,12 +450,34 @@ def _shim_ipython():
 _shim_ipython()
 
 
+def _plotly_show(self, *args, **kwargs):
+    show_rich(rich_item(self) or {"kind": "markdown", "text": "*(a Plotly figure that couldn't be shown)*"})
+
+
+def _io_show(fig, *args, **kwargs):
+    if isinstance(fig, dict):
+        # plotly.io.show() also takes a figure as a plain dict.
+        show_rich({"kind": "plotly", "figure": json.dumps(fig, default=str), "js": _plotly_js()})
+    else:
+        _plotly_show(fig)
+
+
 def _patch_ipython_display(module):
     module.display = display
 
 
+def _patch_plotly_figures(module):
+    base = getattr(module, "BaseFigure", None)
+    if base is not None:
+        base.show = _plotly_show
+
+
+def _patch_plotly_io(module):
+    module.show = _io_show
+
+
 class _AfterImport:
-    # Patch a module as soon as a cell imports it (IPython's display).
+    # Patch a module as soon as a cell imports it (fig.show(), IPython's display).
     def __init__(self, patches):
         self.patches = dict(patches)
 
@@ -476,6 +510,8 @@ class _AfterImport:
 sys.meta_path.insert(0, _AfterImport({
     "IPython.display": _patch_ipython_display,
     "IPython.core.display_functions": _patch_ipython_display,
+    "plotly.basedatatypes": _patch_plotly_figures,
+    "plotly.io": _patch_plotly_io,
 }))
 
 
