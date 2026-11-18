@@ -847,8 +847,14 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
 
 /* Output saved in the note: the callout below the block shows it, so the
    card keeps just its header (status, Explain, copy, clear). */
+/* Saved in the note: the callout shows the text, tables and images; the card
+   keeps what the note can't show (HTML and interactive charts). */
 .tahoe-run-output.is-saved .tahoe-run-output-body,
-.tahoe-run-output.is-saved .tahoe-run-figures {
+.tahoe-run-output.is-saved .tahoe-run-figures,
+.tahoe-run-output.is-saved .tahoe-run-rich-table,
+.tahoe-run-output.is-saved .tahoe-run-rich-markdown,
+.tahoe-run-output.is-saved .tahoe-run-rich-image,
+.tahoe-run-output.is-saved .tahoe-run-rich-note {
   display: none;
 }
 

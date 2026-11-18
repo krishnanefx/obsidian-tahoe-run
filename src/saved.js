@@ -14,8 +14,11 @@
  *
  * It's a plain callout, so it reads well on iPhone and in search. The text is
  * an indented code block (not a fenced one) so it never counts as another code
- * block. Plots are saved as attachments. Running again replaces the callout;
- * clearing removes it, and its old images go to the Trash.
+ * block. Plots are saved as attachments. Rich output is written as Markdown:
+ * tables as tables, Markdown and LaTeX as they are, images as attachments;
+ * HTML and interactive charts get a line saying to run the block to see them.
+ * Running again replaces the callout; clearing removes it, and its old images
+ * go to the Trash.
  */
 
 import { TFile, MarkdownView, normalizePath, base64ToArrayBuffer } from "obsidian";
@@ -90,8 +93,21 @@ function title(output) {
   return parts.join(" · ");
 }
 
-function bodyText(output) {
-  let text = output.text().replace(/\r/g, "").replace(/\s+$/, "");
+// The output in order: runs of text, and the rich outputs between them.
+function sequence(output) {
+  const out = [];
+  for (const part of output.parts) {
+    if (part.stream === "display") {
+      const item = output.displays && output.displays.get(part.n);
+      if (item) out.push({ item });
+    } else if (out.length && out[out.length - 1].text != null) out[out.length - 1].text += part.text;
+    else out.push({ text: part.text });
+  }
+  return out;
+}
+
+function bodyText(output, text = output.text()) {
+  text = text.replace(/\r/g, "").replace(/\s+$/, "");
   let lines = text ? text.split("\n") : [];
   let note = "";
   if (lines.length > MAX_LINES) {
@@ -105,6 +121,41 @@ function bodyText(output) {
   }
   if (output.truncated) note = note || "… output trimmed";
   return { lines: joined ? joined.split("\n") : [], note };
+}
+
+const IMAGE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/svg+xml": "svg" };
+
+function cell(text) {
+  return String(text == null ? "" : text).replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
+}
+
+// A table from display() as a Markdown table, with what was left out.
+function tableMarkdown(t) {
+  const cols = t.columns || [];
+  if (!cols.length) return [];
+  const lines = [`| ${cols.map((c) => cell(c) || " ").join(" | ")} |`, `| ${cols.map(() => "---").join(" | ")} |`];
+  for (const row of t.rows || []) lines.push(`| ${cols.map((_, i) => cell(row[i])).join(" | ")} |`);
+  const facts = [t.size && t.size.includes("×") ? `${t.size.replace("×", " rows × ")} columns` : "", t.truncated ? `first ${(t.rows || []).length} rows` : ""].filter(Boolean);
+  if (facts.length) lines.push("", `*${facts.join(", ")}*`);
+  return lines;
+}
+
+// Rich output as callout lines; images come back separately, to be attachments.
+function richMarkdown(item) {
+  switch (item.kind) {
+    case "table":
+      return tableMarkdown(item.table || {});
+    case "markdown":
+      return String(item.text || "").split("\n");
+    case "latex":
+      return ["$$", ...String(item.text || "").split("\n"), "$$"];
+    case "html":
+      return ["*HTML output: run the block to see it.*"];
+    case "plotly":
+      return ["*Interactive chart: run the block to see it.*"];
+    default:
+      return [];
+  }
 }
 
 // Old images this plugin made for a block go to the Trash when it's re-run or cleared.
@@ -135,28 +186,51 @@ async function saveOutput(plugin, block, output) {
   const oldImages = old ? embedsIn(before.slice(old.from, old.end + 1)) : [];
 
   const { lines, note } = bodyText(output);
-  if (!lines.length && !output.images.length) {
+  const rich = output.displayItems ? output.displayItems() : [];
+  if (!lines.length && !output.images.length && !rich.length) {
     // Nothing to show: just remove what was there before.
     if (old) await removeSaved(plugin, { sourcePath: block.sourcePath, ordinal: block.ordinal, code: block.code });
     output.saved = false;
     return false;
   }
 
-  // Figures become attachments.
+  // Figures (and images from display()) become attachments.
   await trashImages(app, oldImages, file.path);
+  let count = 0;
+  const attach = async (ext, base64) => {
+    count++;
+    const name = `${file.basename} - output ${block.ordinal + 1}-${count}.${ext}`;
+    const where = await app.fileManager.getAvailablePathForAttachment(name, file.path);
+    const img = await app.vault.createBinary(normalizePath(where), base64ToArrayBuffer(base64));
+    return `!${app.fileManager.generateMarkdownLink(img, file.path).replace(/^!/, "")}`;
+  };
+  // With rich output, text and rich output alternate as they did in the card.
+  const body = [];
+  if (rich.length) {
+    for (const seg of sequence(output)) {
+      if (seg.item) {
+        const item = seg.item;
+        const piece = item.kind === "image" && IMAGE_TYPES[item.mime] ? [await attach(IMAGE_TYPES[item.mime], item.data || "")] : richMarkdown(item);
+        if (piece.length) body.push(">", ...piece.map((l) => (l ? `> ${l}` : ">")));
+      } else {
+        const t = bodyText(output, seg.text);
+        if (!t.lines.length) continue;
+        body.push(">", ...t.lines.map((l) => `>     ${l}`));
+        if (t.note) body.push(">", `> *${t.note}*`);
+      }
+    }
+  }
   const embeds = [];
   for (let i = 0; i < output.images.length; i++) {
     const m = /^data:image\/(png|gif);base64,(.*)$/.exec(output.images[i]);
     if (!m) continue;
-    const name = `${file.basename} - output ${block.ordinal + 1}-${i + 1}.${m[1]}`;
-    const where = await app.fileManager.getAvailablePathForAttachment(name, file.path);
-    const img = await app.vault.createBinary(normalizePath(where), base64ToArrayBuffer(m[2]));
-    embeds.push(`!${app.fileManager.generateMarkdownLink(img, file.path).replace(/^!/, "")}`);
+    embeds.push(await attach(m[1], m[2]));
   }
 
   const status = output.status === "success" ? "success" : "error";
   const callout = [`> [!output|${status}]+ ${title(output)}`];
-  if (lines.length) {
+  if (rich.length) callout.push(...body);
+  else if (lines.length) {
     callout.push(">");
     for (const l of lines) callout.push(`>     ${l}`);
     if (note) callout.push(">", `> *${note}*`);
@@ -199,4 +273,4 @@ async function removeSaved(plugin, target) {
   await trashImages(app, images, file.path);
 }
 
-export { saveOutput, removeSaved, locate, processNote, readNote };
+export { saveOutput, removeSaved, locate, processNote, readNote, tableMarkdown, richMarkdown };

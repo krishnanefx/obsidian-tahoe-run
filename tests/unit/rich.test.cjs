@@ -57,6 +57,43 @@ test("rich: clearing a run drops its displays and any pending input", () => {
 
 /* ---------- saved in the note ---------- */
 
+test("rich: tables are saved as Markdown tables, with | and line breaks made safe", () => {
+  eq(saved.tableMarkdown(TABLE.table), ["|   | x | y |", "| --- | --- | --- |", "| 0 | 1 | a\\|b |", "| 1 | 2 | line break |", "", "*100 rows × 2 columns, first 2 rows*"]);
+  eq(saved.tableMarkdown({ columns: [] }), []);
+});
+
+test("rich: Markdown and LaTeX are kept; HTML and charts get a line saying to run the block", () => {
+  eq(saved.richMarkdown({ kind: "markdown", text: "**a**\nb" }), ["**a**", "b"]);
+  eq(saved.richMarkdown({ kind: "latex", text: "x^2" }), ["$$", "x^2", "$$"]);
+  eq(saved.richMarkdown({ kind: "html", html: "<b>x</b>" }), ["*HTML output: run the block to see it.*"]);
+  eq(saved.richMarkdown({ kind: "plotly", figure: "{}" }), ["*Interactive chart: run the block to see it.*"]);
+});
+
+test("rich: the callout keeps text and rich output in the order they came, images as attachments", async () => {
+  const { vault, plugin } = savedSetup("```python\ndisplay(df)\n```\nEnd.");
+  const o = out({
+    parts: [["out", "before\n"], 1, ["out", "middle\n"], 2, 3],
+    displays: [[1, TABLE], [2, { kind: "image", mime: "image/svg+xml", data: Buffer.from("<svg/>").toString("base64") }], [3, { kind: "plotly", figure: "{}" }]],
+  });
+  ok(await saved.saveOutput(plugin, { sourcePath: "Labs/Lab.md", ordinal: 0, code: "display(df)" }, o));
+  const lines = vault.text("Labs/Lab.md").split("\n");
+  const body = lines.slice(lines.findIndex((l) => l.startsWith("> [!output")) + 1, lines.indexOf("End.") - 1);
+  eq(body, [
+    ">", ">     before",
+    ">", "> |   | x | y |", "> | --- | --- | --- |", "> | 0 | 1 | a\\|b |", "> | 1 | 2 | line break |", ">", "> *100 rows × 2 columns, first 2 rows*",
+    ">", ">     middle",
+    ">", "> ![[Lab - output 1-1.svg]]",
+    ">", "> *Interactive chart: run the block to see it.*",
+  ]);
+  ok([...vault.files.keys()].some((p) => p.endsWith("Lab - output 1-1.svg")), "the SVG became an attachment");
+});
+
+test("rich: output with only a display is still saved", async () => {
+  const { vault, plugin } = savedSetup("```python\ndf\n```\n");
+  ok(await saved.saveOutput(plugin, { sourcePath: "Labs/Lab.md", ordinal: 0, code: "df" }, out({ parts: [1], displays: [[1, TABLE]] })));
+  match(vault.text("Labs/Lab.md"), /> \| 0 \| 1 \|/);
+});
+
 /* ---------- `$name` in the text ---------- */
 
 h.run({ title: "Tahoe Run rich output tests" });
