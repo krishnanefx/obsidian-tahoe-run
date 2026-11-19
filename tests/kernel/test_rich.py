@@ -239,5 +239,31 @@ class Input(unittest.TestCase):
             out += os.read(self.k.proc.stdout.fileno(), 1 << 16)
 
 
+class ValuesInText(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.k = Kernel()
+        cls.k.run("total = 12.5\nscores = {'test': 91, 'quiz': [1, 2]}\nclass P: pass\np = P()\np.name = 'Ada'\nimport os")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.k.close()
+
+    def values(self, exprs):
+        return self.k.ask({"type": "values", "id": "v%d" % time.time_ns(), "exprs": exprs})["values"]
+
+    def test_names_attributes_and_subscripts(self):
+        v = self.values(["total", "scores['test']", "scores['quiz'][1]", 'scores["quiz"]', "p.name"])
+        self.assertEqual(v["total"], {"text": "12.5", "type": "float"})
+        self.assertEqual(v["scores['test']"]["text"], "91")
+        self.assertEqual(v["scores['quiz'][1]"]["text"], "2")
+        self.assertEqual(v['scores["quiz"]']["text"], "[1, 2]")
+        self.assertEqual(v["p.name"], {"text": "Ada", "type": "str"})
+
+    def test_nothing_is_called(self):
+        v = self.values(["os.system('echo no')", "missing", "p.__class__", "total()", "scores[total]"])
+        self.assertEqual(set(v.values()), {None})
+
+
 if __name__ == "__main__":
     unittest.main()

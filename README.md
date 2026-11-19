@@ -21,6 +21,7 @@
 - **Plots and animations** under the block: Matplotlib figures, `FuncAnimation` as looping GIFs, and progress bars that update in place.
 - **Rich output, like Jupyter.** A DataFrame as a block's last line, or `display(df)`, is a table; a Plotly figure (`fig.show()`) is an interactive chart, offline; and anything with an HTML, Markdown or LaTeX form shows that way: SymPy expressions as maths, `df.style` as styled HTML, IPython's `HTML`, `Markdown` and `Math`. It all appears in order among the printed lines.
 - **Input.** `input()`, `getpass()` and `sys.stdin` in Python ask in a field under the block, and C, Java, Go and the other languages' programs read what you type there too.
+- **Values in the text.** Write `` `$total` `` anywhere in a note and it shows what `total` holds in the note's Python, updated after each run: "The mean is `` `$mean` ``." Attributes and indexes work too (`` `$df.shape` ``, `` `$scores['test']` ``); nothing is called.
 - **Packages:** when a block fails with *No module named 'cv2'*, the output offers to install `opencv-python` into the note's Python, then runs the block again.
 - **Jupyter:** export a note as a `.ipynb` notebook (with its outputs and plots), a `.py` script with `# %%` cells or a `.m` script with `%%` sections, and import notebooks and scripts as notes.
 - **Explain this error:** a model explains a failed block and suggests a fix you can apply.

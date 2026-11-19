@@ -9,6 +9,7 @@ const { test, eq, ok, match, load, FakeVault, fakeApp } = h;
 
 const saved = load("src/saved.js");
 const { RunOutput } = load("src/output.js");
+const { InlineValues } = load("src/inline.js");
 
 function out({ parts = [], displays = [], ...fields } = {}) {
   const o = new RunOutput("k");
@@ -95,5 +96,26 @@ test("rich: output with only a display is still saved", async () => {
 });
 
 /* ---------- `$name` in the text ---------- */
+
+test("values: references are found in prose, not in code blocks", () => {
+  const store = new InlineValues({ settings: { inlineValues: true } });
+  const note = [
+    "The mean is `$mean` and the test got `$scores['test']`.",
+    "Nested `$a.b[0]`, double quotes `$d[\"k\"]`, and `$` alone or `$1` aren't references.",
+    "```python",
+    "x = '`$inside`'",
+    "```",
+    "`$total`",
+  ].join("\n");
+  eq(store.exprsIn(note), ["mean", "scores['test']", "a.b[0]", 'd["k"]', "total"]);
+});
+
+test("values: a known value, and an unknown one, as the widget shows them", () => {
+  const store = new InlineValues({ settings: { inlineValues: true } });
+  store.values.set("N.md", new Map([["total", { text: "42", type: "int" }], ["missing", null]]));
+  eq(store.get("N.md", "total"), { text: "42", type: "int" });
+  eq(store.get("N.md", "missing"), null);
+  eq(store.get("Other.md", "total"), null);
+});
 
 h.run({ title: "Tahoe Run rich output tests" });

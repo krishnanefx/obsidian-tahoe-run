@@ -141,11 +141,11 @@ class PythonKernel {
       if (this.onPaused) this.onPaused(message);
     } else if (message.type === "resumed") {
       if (this.state === "paused") this.state = "busy";
-    } else if (message.type === "complete" || message.type === "inspect" || message.type === "table" || message.type === "refreshed") {
+    } else if (message.type === "complete" || message.type === "inspect" || message.type === "table" || message.type === "values" || message.type === "refreshed") {
       const resolve = this.pendingAsks.get(message.id);
       if (resolve) {
         this.pendingAsks.delete(message.id);
-        resolve(message.type === "complete" ? message.items || [] : message.type === "table" ? message.table || null : message.info || null);
+        resolve(message.type === "complete" ? message.items || [] : message.type === "table" ? message.table || null : message.type === "values" ? message.values || null : message.info || null);
       }
     } else if (message.type === "variables") {
       const resolve = this.pendingVariables.get(message.id);
@@ -281,6 +281,11 @@ class PythonKernel {
 
   inspect(expr) {
     return this.ask({ type: "inspect", expr }, null, 1200);
+  }
+
+  // `$total` references in the note's text: { expr: { text, type } | null }.
+  values(exprs) {
+    return this.ask({ type: "values", exprs }, null, 2000);
   }
 
   // Ctrl-C for the running cell; if it doesn't stop, the kernel is restarted.

@@ -335,6 +335,10 @@ class PyodideSession {
     return this.ask("inspect_value", expr);
   }
 
+  values(exprs) {
+    return this.ask("inline_values", exprs);
+  }
+
   complete(code, line, column) {
     return this.ask("complete", code, line, column).then((r) => r || []);
   }

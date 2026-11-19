@@ -29,6 +29,7 @@ import { saveOutput, removeSaved, processNote } from "./saved";
 import FIGURES_HOOK from "./figures.py";
 import STDCPP_SHIM from "./stdcpp.h";
 import { fs, path, os, childProcess, loadNode } from "./node";
+import { InlineValues } from "./inline";
 
 // On iPhone and iPad there's no Node: Python runs in Pyodide instead, and the
 // rest (other languages, MATLAB, the Mac's Python) never runs.
@@ -58,6 +59,7 @@ const DEFAULT_SETTINGS = {
   matlabSession: true, // MATLAB blocks share a running MATLAB per note
   sessionSuggestions: true, // suggestions from the running session (through Tahoe Code)
   hoverValues: true, // hover a name to see its value in the running session
+  inlineValues: true, // `$total` in a note's text shows total's value
   shiftEnter: true, // ⇧Enter runs the block and moves to the next, like Jupyter
   matlabAnimations: true, // drawnow/pause loops in MATLAB become a GIF
   debugger: true, // breakpoints in Python blocks
@@ -184,6 +186,7 @@ export default class TahoeRunPlugin extends Plugin {
     this.settings.commands = Object.assign({}, this.settings.commands);
     this.outputs = new Map();
     this.kernels = new Map(); // note path -> PythonKernel
+    this.inline = new InlineValues(this);
     this.debugSpecs = new Map(); // note path -> the breakpoints sent with the running block
     this.matlab = new Map(); // note path -> MatlabSession
     this.aliases = new Map();
@@ -204,19 +207,21 @@ export default class TahoeRunPlugin extends Plugin {
       errorLineField,
       valueHover(this),
       debuggerExtension(this),
+      this.inline.extension(),
       Prec.highest(keymap.of([{ key: "Shift-Enter", run: (view) => this.runAndAdvance(view) }])),
     ]);
     // Suggestions from the running sessions, offered through Tahoe Code's autocomplete.
     this.app.workspace.onLayoutReady(() => this.hookTahoeCode());
     this.registerEvent(this.app.workspace.on("tahoe-code:ready", (api) => this.hookTahoeCode(api)));
     this.registerMarkdownPostProcessor((el, ctx) => this.decorateReadingView(el, ctx));
+    this.registerMarkdownPostProcessor((el, ctx) => this.inline.postProcess(el, ctx));
 
     this.statusEl = this.addStatusBarItem();
     this.statusEl.addClass("tahoe-run-kernel-status", "mod-clickable");
     this.statusEl.addEventListener("click", (e) => this.showKernelMenu(e));
     this.registerView(VARIABLES_VIEW, (leaf) => new VariablesView(leaf, this));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => (this.updateStatus(), this.refreshVariables())));
-    this.registerEvent(this.app.workspace.on("file-open", (file) => (this.updateStatus(), this.warmPython(file))));
+    this.registerEvent(this.app.workspace.on("file-open", (file) => (this.updateStatus(), this.warmPython(file), file && this.inline.refresh(file.path))));
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
         for (const map of [this.kernels, this.matlab]) {
@@ -918,7 +923,7 @@ export default class TahoeRunPlugin extends Plugin {
       python: this.pythonFor(sourcePath),
       cwd: this.vaultFolder(sourcePath),
       env: this.makeEnv(null),
-      onExit: () => (this.updateStatus(), this.refreshVariables()),
+      onExit: () => (this.updateStatus(), this.refreshVariables(), this.inline.forget(sourcePath)),
       onPaused: (pause) => this.onPaused(sourcePath, kernel, pause),
     });
     this.kernels.set(sourcePath, kernel);
@@ -974,6 +979,7 @@ export default class TahoeRunPlugin extends Plugin {
     output.kernelRef = null;
     output.changed();
     this.updateStatus();
+    this.inline.refresh(block.sourcePath);
   }
 
   /* ---------- with Tahoe Code ---------- */
@@ -1605,6 +1611,7 @@ class TahoeRunSettingTab extends PluginSettingTab {
     toggle("saveOutput", "Save output in the note", "Each run's output (and plots, as images) goes in a callout below the block, so it's there next time and on your other devices.");
     toggle("shiftEnter", "⇧Enter runs the block", "On a keyboard: Shift-Enter in a block runs it and moves to the next one.");
     toggle("hoverValues", "Hover to see values", "Point at a name to see what it holds (on iPad with a trackpad or mouse).");
+    toggle("inlineValues", "Values in the text", "Write `$name` (in backticks) in a note to show that Python variable's value; it updates after each run.");
   }
 
   display() {
@@ -1689,6 +1696,11 @@ class TahoeRunSettingTab extends PluginSettingTab {
       .setName("Hover to see values")
       .setDesc("Point at a name in a Python or MATLAB block to see what it holds in the note's running session.")
       .addToggle((t) => t.setValue(s.hoverValues).onChange(async (v) => ((s.hoverValues = v), save())));
+
+    new Setting(containerEl)
+      .setName("Values in the text")
+      .setDesc("Write `$name` (in backticks) anywhere in a note to show that Python variable's value; it updates after each run. Attributes and indexes work too: `$df.shape`, `$scores['test']`.")
+      .addToggle((t) => t.setValue(s.inlineValues).onChange(async (v) => ((s.inlineValues = v), save())));
 
     new Setting(containerEl)
       .setName("MATLAB session per note")

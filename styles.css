@@ -1218,3 +1218,16 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
   font-size: 0.85em;
 }
 
+/* ---- `$total` in the text: the value from the note's running Python ---- */
+.tahoe-run-inline-value {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
+}
+
+.tahoe-run-inline-value.is-unknown {
+  color: var(--text-faint);
+}

@@ -949,6 +949,43 @@ def inspect_value(expr, namespace=None):
     return info
 
 
+# `$total` or `$df.shape` or `$scores['test']` in a note's text shows the value.
+# Only names, attributes and literal subscripts: nothing is called or evaluated.
+INLINE = re.compile(r"""^([A-Za-z_]\w*)((?:\.[A-Za-z_]\w*|\[(?:-?\d+|'[^'\\]*'|"[^"\\]*")\])*)$""")
+INLINE_STEP = re.compile(r"""\.([A-Za-z_]\w*)|\[(-?\d+|'[^'\\]*'|"[^"\\]*")\]""")
+
+
+def inline_value(expr, namespace=None):
+    ns = NAMESPACE if namespace is None else namespace
+    m = INLINE.match(expr or "")
+    if not m or m.group(1) not in ns:
+        return None
+    value = ns[m.group(1)]
+    for attr, key in INLINE_STEP.findall(m.group(2)):
+        if attr:
+            if attr.startswith("__"):
+                return None
+            value = getattr(value, attr)
+        else:
+            value = value[int(key) if key.lstrip("-").isdigit() else key[1:-1]]
+    try:
+        text = str(value)
+    except Exception:
+        text = short_repr(value, 200)
+    text = re.sub(r"\s+", " ", text).strip()
+    return {"text": text if len(text) <= 120 else text[:117] + "…", "type": type_name(value)}
+
+
+def inline_values(exprs, namespace=None):
+    out = {}
+    for expr in (exprs or [])[:200]:
+        try:
+            out[expr] = inline_value(str(expr), namespace)
+        except Exception:
+            out[expr] = None
+    return out
+
+
 def answer(message, ns=None):
     """Questions from the editor, about the namespace (or a paused frame's)."""
     kind = message.get("type")
@@ -966,6 +1003,8 @@ def answer(message, ns=None):
         except Exception:
             info = None
         send({"type": "inspect", "id": message.get("id"), "info": info})
+    elif kind == "values":
+        send({"type": "values", "id": message.get("id"), "values": inline_values(message.get("exprs"), ns)})
     elif kind == "table":
         try:
             table = table_of(message.get("expr", ""), ns)
