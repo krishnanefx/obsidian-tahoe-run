@@ -103,6 +103,10 @@ Tahoe is a set of plugins and a theme that work on their own and fit together.
 - **With [Tahoe](https://github.com/krishnanefx/obsidian-tahoe-theme):** Tahoe Run uses Obsidian's own colours and controls, so its capsules and output cards look native in Tahoe (or any theme).
 <!-- /tahoe-family -->
 
+## Feedback
+
+Questions are welcome in [Discussions](https://github.com/krishnanefx/obsidian-tahoe-run/discussions), and bugs and ideas in [Issues](https://github.com/krishnanefx/obsidian-tahoe-run/issues/new/choose). If Tahoe Run is useful to you, a star helps others find it.
+
 ## Credits
 
 Third-party code included in Tahoe Run, with its licences, is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
