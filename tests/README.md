@@ -9,6 +9,7 @@ In the plugin's own repository (`tests/` next to `src/`):
 ```sh
 npm ci                                          # esbuild, which loads the ES modules in Node
 node tests/unit/run.test.cjs                    # unit tests, a few seconds
+node tests/unit/rich.test.cjs                   # rich output, saved as Markdown, and values in the text
 node tests/runners/runners.test.cjs             # real programs, about 15 s
 python3 -m unittest discover -s tests/kernel    # the Python side, about 15 s
 ```
@@ -37,11 +38,13 @@ In the Tahoe monorepo, `sh tests/run.sh` runs all of them (and the other plugins
 - Pyodide: pinned SHA-256s for the core files, package checksums from the lock file, dependencies, the store, serving Pyodide's file requests from the plugin folder, and a note's session.
 - The variables view and data sheets, breakpoints per block, the static completer's protocol, and the plugin itself: commands from settings, a run's folder and environment, a note's `python:` property, ⇧Enter, where each block runs, notebook mode's line offsets, suggestions, Use this fix, clearing, restart, idle kernels, rename and delete, the paused line, the status bar, and installing a missing package (with a stand-in pip).
 
+**`unit/rich.test.cjs`** covers rich output in the card and in saved callouts (tables, Markdown, LaTeX, images, HTML and charts), and `$values` in a note's text.
+
 **`runners/runners.test.cjs`** runs real programs through `prepareJob`, `spawn` and `kill`, the Python kernel and the complexity harness, as the Run button does. Each language is skipped if its tools aren't installed (the check is the plugin's own). It checks stdout, stderr and exit codes, compile and runtime errors linking to the block's lines, the temp folder kept out of messages, plots, the time limit (killing the program's children too), Stop (including a program that ignores SIGTERM), a command that isn't installed, the output limit, notebook mode, saved outputs, and the names MATLAB's figures are saved under. In the kernel it covers shared variables, values, errors, Stop, restart, a kernel that dies, plots, and a breakpoint set in the editor and stepped from the card. It also runs the complexity checker on a Python function and on a C program.
 
 Languages with tests: C, C++, Objective-C, Swift, Java, JavaScript, Python, Ruby, Perl, Bash, Zsh, SQLite and AppleScript. Rust, Go, Kotlin, Haskell, Lua, PHP, R, Julia, C# and Octave are tested where their tools are installed. TypeScript only runs if `tsx` is installed, since otherwise `npx` would download it.
 
-**`kernel/test_kernel.py`** drives `src/kernel.py` over its pipes as `kernel.js` does. It covers shared state, the last expression's value, stdout and stderr (including from subprocesses), output without a locale, a lot of output, errors and their line numbers, syntax errors, recursion, `exit()`, Ctrl-C during a loop or a sleep and between cells, bad commands, shutdown, a fresh kernel per note, the variables view, hover values (which never run code), tables, suggestions, and the debugger: step into, over and out, continue, stop, the paused frame's variables, library code stepped over, and breakpoints that never hit. With matplotlib it checks plots and an animation capped at the kernel's frame limit. It also imports the kernel as Pyodide does, runs the Python bridge in `pyodide.js` against it, and tests `complexity.py` and `completer.py`.
+**`kernel/test_kernel.py`** drives `src/kernel.py` over its pipes as `kernel.js` does. It covers shared state, the last expression's value, stdout and stderr (including from subprocesses), output without a locale, a lot of output, errors and their line numbers, syntax errors, recursion, `exit()`, `input()`, Ctrl-C during a loop or a sleep and between cells, bad commands, shutdown, a fresh kernel per note, the variables view, hover values (which never run code), tables, suggestions, and the debugger: step into, over and out, continue, stop, the paused frame's variables, library code stepped over, and breakpoints that never hit. With matplotlib it checks plots and an animation capped at the kernel's frame limit. It also imports the kernel as Pyodide does, runs the Python bridge in `pyodide.js` against it, and tests `complexity.py` and `completer.py`. **`kernel/test_rich.py`** covers the kernel's rich output (`display()`, IPython's display classes, DataFrames, Plotly, SymPy), typed input (`input()`, `getpass`, `sys.stdin`) and values in the text.
 
 ## What isn't covered
 
@@ -50,3 +53,4 @@ Languages with tests: C, C++, Objective-C, Swift, Java, JavaScript, Python, Ruby
 - **Pyodide end to end:** WebAssembly Python isn't loaded. The file store, checksums, serving its requests, the session's queue and the Python bridge are tested separately.
 - **Windows and Linux:** the tests are written for macOS (and POSIX shells). Some would pass on Linux, but they haven't been run there.
 - **Network:** the Claude API, a real Ollama, CDN downloads and pip are replaced by stand-ins. Building the Apple Intelligence helper isn't tested.
+- **Typed input for other languages:** the field that writes to a running program's stdin isn't tested yet. The Python kernel's input is.

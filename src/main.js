@@ -31,6 +31,9 @@ import STDCPP_SHIM from "./stdcpp.h";
 import { fs, path, os, childProcess, loadNode } from "./node";
 import { InlineValues } from "./inline";
 
+// "#| eval: false" (Quarto and Jupyter cell options) on a block's first line: Run all skips it.
+const SKIP_CELL = /^\s*(?:#|%|\/\/|--)\|\s*eval:\s*false\b/i;
+
 // On iPhone and iPad there's no Node: Python runs in Pyodide instead, and the
 // rest (other languages, MATLAB, the Mac's Python) never runs.
 const DESKTOP = Platform.isDesktop;
@@ -724,11 +727,20 @@ export default class TahoeRunPlugin extends Plugin {
     return true;
   }
 
+  // Top to bottom, like a notebook's Run All: it stops at the first block that
+  // fails (later blocks usually depend on it), and skips blocks whose first line
+  // is a Quarto-style "#| eval: false" (or %|, //| or --|, in the block's language).
   async runAll(file) {
     const blocks = findCodeBlocks((await this.app.vault.cachedRead(file)).split("\n"));
     for (let i = 0; i < blocks.length; i++) {
-      if (!this.resolve(blocks[i].lang)) continue;
-      await this.run({ key: `${file.path}::${i}`, lang: blocks[i].lang, ordinal: i, code: blocks[i].code, sourcePath: file.path });
+      if (!this.resolve(blocks[i].lang) || SKIP_CELL.test(blocks[i].code.split("\n")[0] || "")) continue;
+      const key = `${file.path}::${i}`;
+      await this.run({ key, lang: blocks[i].lang, ordinal: i, code: blocks[i].code, sourcePath: file.path });
+      const output = this.outputs.get(key);
+      if (output && output.failed()) {
+        new Notice(`Run all stopped at block ${i + 1} (line ${blocks[i].start + 1}), which failed.`);
+        return;
+      }
     }
   }
 

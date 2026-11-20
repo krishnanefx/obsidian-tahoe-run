@@ -4,6 +4,12 @@
 
 **Run the code in your notes, like a notebook.** Python gets a live kernel with a real debugger and a variables view, MATLAB runs in a session of your own MATLAB, and C, C++, Swift, JavaScript and twenty-odd other languages run with the tools you have installed. The output, plots included, appears right under the block. Python also runs on iPhone and iPad (beta).
 
+| Platform | Status | Tested on | Known limits |
+|---|---|---|---|
+| macOS | Supported | macOS 27, Obsidian 1.13 or later | None known |
+| iPhone and iPad | Beta, Python only | Obsidian's mobile mode on a Mac, not yet a real device | A running block can't be stopped; no debugger, `input()` or pip |
+| Windows, Linux | Untested | Not yet | Written to work; MATLAB has to be on your PATH or set in settings |
+
 ![Stepping through a breakpoint while the variables view updates](images/debugger-demo.png)
 
 - Click where a line's number is for a **breakpoint**, run, and **step** through the loop while the variables update.
@@ -30,11 +36,12 @@
 
 Python, MATLAB, GNU Octave, JavaScript, TypeScript (through `npx tsx`), Swift, C, C++, Objective-C, Java, Kotlin, C#, Go, Rust, Ruby, PHP, Perl, Lua, R, Julia, Haskell, Bash, Zsh, AppleScript and SQLite. Any of them whose tools are installed works; the settings show which were found, and each language's command can be changed. The PATH comes from your login shell, so Homebrew tools are found. Compiled languages are built first.
 
-Tahoe Run is developed and tested on macOS. It's written to work on Windows and Linux too, but that hasn't been tested yet; reports are welcome.
+If you try it on Windows, Linux or a real iPhone or iPad, I'd like to hear how it went: [open a discussion](https://github.com/krishnanefx/obsidian-tahoe-run/discussions).
 
 ## Using it
 
 - **Run:** the ▶ Run capsule on a block, or *Run code block at cursor*, *Run all code blocks in note* and *Stop all running code* from the command palette. Assign hotkeys in Settings → Hotkeys.
+- **Run all** runs the note's blocks top to bottom and stops at the first one that fails, like a notebook. A block whose first line is `#| eval: false` (or `%| eval: false` in MATLAB) is skipped.
 - **⇧Enter** runs a block and moves to the next one, or starts a new block below the last, as in Jupyter.
 - **Saved output:** each run's output (and its plots, as image attachments) is written into the note in an *Output* callout under the block, so it's still there next time. Running again replaces it; clearing it moves its images to the trash. You can turn this off.
 - **Errors link to their lines.** Click *line 3* or *main.cpp:3:14* in an error to jump to that line of the block.
@@ -92,7 +99,7 @@ Tahoe is a set of plugins and a theme that work on their own and fit together.
 | **[Tahoe Math](https://github.com/krishnanefx/obsidian-tahoe-math)** | A calculator in your notes: type an expression ending in `=` and the answer appears. | available |
 | **[Tahoe](https://github.com/krishnanefx/obsidian-tahoe-theme)** | A clean, Mac-like theme, in light and dark. | available |
 | **[Tahoe Code](https://github.com/krishnanefx/obsidian-tahoe-code)** | An IDE in your code blocks: suggestions, checking as you type, quick fixes, go to definition, formatting and AI edits. | available |
-| **Tahoe Glass** | Real refraction for the Tahoe theme's glass, and System Settings–style settings pages. | coming soon |
+| **[Tahoe Glass](https://github.com/krishnanefx/obsidian-tahoe-glass)** | Real refraction for the Tahoe theme's glass, and header cards on settings pages. | available |
 | **[Tahoe Organize](https://github.com/krishnanefx/obsidian-tahoe-organize)** | Keep a growing vault tidy: inbox triage, smart folders, colored tags, link suggestions, vault health, literature notes and text from images. | available |
 | **[Tahoe Intelligence](https://github.com/krishnanefx/obsidian-tahoe-intelligence)** | On-device AI for your notes: ask your notes, related notes, distilling permanent notes and more. | available |
 
@@ -101,6 +108,7 @@ Tahoe is a set of plugins and a theme that work on their own and fit together.
 - **With [Tahoe Code](https://github.com/krishnanefx/obsidian-tahoe-code):** Python and MATLAB blocks get suggestions from the running session (a data frame's real columns, a struct's fields), and ⌘I on an equation writes it as a function that Tahoe Run then runs and checks.
 - **With [Tahoe Math](https://github.com/krishnanefx/obsidian-tahoe-math):** quick sums stay in the prose around your code, with no block needed.
 - **With [Tahoe](https://github.com/krishnanefx/obsidian-tahoe-theme):** Tahoe Run uses Obsidian's own colours and controls, so its capsules and output cards look native in Tahoe (or any theme).
+- **With [Tahoe Glass](https://github.com/krishnanefx/obsidian-tahoe-glass):** the ▶ Run capsules get the theme's glass, with real refraction.
 <!-- /tahoe-family -->
 
 ## Feedback
