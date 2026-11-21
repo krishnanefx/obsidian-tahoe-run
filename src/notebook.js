@@ -8,7 +8,7 @@
  */
 
 import { Notice, TFile, normalizePath, arrayBufferToBase64, base64ToArrayBuffer } from "obsidian";
-import { findCodeBlocks, LANGUAGES } from "./blocks";
+import { findCodeBlocks, LANGUAGES, outputLine, outputText } from "./blocks";
 
 const CALLOUT = /^>\s*\[!output(?:\|([^\]]*))?\][+-]?/i;
 const langId = (lang) => {
@@ -49,7 +49,7 @@ function parseNote(text) {
       const body = lines.slice(i + 1, end + 1);
       item.output = {
         status,
-        text: body.filter((l) => /^> {5}/.test(l) || l === ">     ").map((l) => l.slice(6)).join("\n"),
+        text: body.filter((l) => /^> {5}/.test(l) || l === ">     ").map(outputText).join("\n"),
         images: body.flatMap((l) => [...l.matchAll(/!\[\[([^\]|#]+)[^\]]*\]\]/g)].map((m) => m[1])),
       };
       at = end + 1;
@@ -221,7 +221,7 @@ async function fromIpynb(app, json, notePath) {
     const callout = [`> [!output|${failed ? "error" : "success"}]+ Output · ${label} · from Jupyter`];
     if (body) {
       callout.push(">");
-      for (const l of body.split("\n").slice(0, 200)) callout.push(`>     ${l}`);
+      for (const l of body.split("\n").slice(0, 200)) callout.push(outputLine(l));
     }
     images.forEach((img, k) => {
       const name = `${notePath.split("/").pop().replace(/\.md$/, "")} - output ${ordinal}-${k + 1}.${img.ext}`;

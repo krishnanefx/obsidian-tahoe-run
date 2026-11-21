@@ -89,4 +89,17 @@ function hash(text) {
   return (h >>> 0).toString(36);
 }
 
-export { LANGUAGES, findCodeBlocks, shellQuote, fill, formatDuration, hash, FENCE_OPEN };
+// A line of plain output in a saved-output callout: an indented code line.
+// Python names things like <module> and <cell 3>, and Obsidian's Live Preview
+// reads a tag-like <module> as HTML and ends the callout there, spilling the
+// rest of the output into the note. A zero-width space after the < keeps it
+// from looking like a tag; it reads the same, and outputText takes it out.
+const NOT_A_TAG = "\u200b";
+function outputLine(text) {
+  return `>     ${String(text).replace(/<(?=[A-Za-z/!?])/g, "<" + NOT_A_TAG)}`;
+}
+function outputText(line) {
+  return line.slice(6).split("<" + NOT_A_TAG).join("<");
+}
+
+export { LANGUAGES, findCodeBlocks, shellQuote, fill, formatDuration, hash, FENCE_OPEN, outputLine, outputText };

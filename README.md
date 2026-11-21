@@ -76,6 +76,23 @@ When a block fails, its output gets an **Explain** button: a model reads the cod
 
 *Check complexity of code block at cursor* times a Python function (or a whole program that reads its input) on growing inputs and reports O(1) to O(2ⁿ) with a log-log chart.
 
+## Coming from Execute Code
+
+[Execute Code](https://github.com/twibiral/obsidian-execute-code) and Tahoe Run do the same core job: a Run button on fenced code blocks, which runs the code with the tools installed on your computer and shows the output under the block. Both read plain ` ```python `, ` ```js ` and similar blocks, so most notes work in either.
+
+**The same:** a Run button on each block, *Run all* for a note, Python blocks sharing one session per note, plots under the block, an input field for programs that ask for it, output you can save into the note, and a changeable command or path for each language.
+
+**What Execute Code does that Tahoe Run doesn't:**
+
+- Languages Tahoe Run doesn't run, such as Dart, Groovy, Lean, Maxima, OCaml, Prolog, Racket, Scala, Zig, Wolfram Mathematica, LaTeX, PowerShell and Batch.
+- Notebook Mode for JavaScript as well as Python.
+- Magic commands (`@vault_path`, `@note_path`, `@show(...)`, `@html(...)`), global code injection per language, `{pre}`/`{post}` blocks and labelled blocks you can `import`.
+- ` ```run-python `-style blocks.
+
+**What Tahoe Run adds:** a Python debugger and variables view, MATLAB sessions, Python on iPhone and iPad (beta), Jupyter import and export, and installing a missing package from the error.
+
+**Switching:** existing blocks run as they are. Arguments such as `{label='x'}` are ignored, ` ```run-python ` blocks need the `run-` removed, and Execute Code's saved output isn't read by Tahoe Run. Turn Execute Code off while you try Tahoe Run, so each block has one Run button.
+
 ## Disclosures
 
 - **It runs programs on your computer:** your Python, MATLAB, compilers and other language tools, with your user account's permissions, when you run a block. Only run code you trust. A Python kernel or MATLAB session keeps running for a note until it's idle for 30 minutes, you restart it or Obsidian quits.

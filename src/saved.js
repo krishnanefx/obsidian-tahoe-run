@@ -22,7 +22,7 @@
  */
 
 import { TFile, MarkdownView, normalizePath, base64ToArrayBuffer } from "obsidian";
-import { findCodeBlocks, formatDuration } from "./blocks";
+import { findCodeBlocks, formatDuration, outputLine } from "./blocks";
 
 const CALLOUT = /^>\s*\[!output(?:\|[^\]]*)?\][+-]?/i;
 const MAX_LINES = 200;
@@ -215,7 +215,7 @@ async function saveOutput(plugin, block, output) {
       } else {
         const t = bodyText(output, seg.text);
         if (!t.lines.length) continue;
-        body.push(">", ...t.lines.map((l) => `>     ${l}`));
+        body.push(">", ...t.lines.map(outputLine));
         if (t.note) body.push(">", `> *${t.note}*`);
       }
     }
@@ -232,7 +232,7 @@ async function saveOutput(plugin, block, output) {
   if (rich.length) callout.push(...body);
   else if (lines.length) {
     callout.push(">");
-    for (const l of lines) callout.push(`>     ${l}`);
+    for (const l of lines) callout.push(outputLine(l));
     if (note) callout.push(">", `> *${note}*`);
   }
   if (embeds.length) {

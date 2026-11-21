@@ -1231,3 +1231,12 @@ body:not(.is-mobile):not(.is-focused) .tahoe-run-ai-icon {
 .tahoe-run-inline-value.is-unknown {
   color: var(--text-faint);
 }
+
+/* The link to the source at the bottom of the settings tab. */
+.tahoe-source-link {
+  margin-top: 2em;
+  padding-top: 0.75em;
+  border-top: 1px solid var(--background-modifier-border);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}

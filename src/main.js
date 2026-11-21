@@ -1624,6 +1624,7 @@ class TahoeRunSettingTab extends PluginSettingTab {
     toggle("shiftEnter", "⇧Enter runs the block", "On a keyboard: Shift-Enter in a block runs it and moves to the next one.");
     toggle("hoverValues", "Hover to see values", "Point at a name to see what it holds (on iPad with a trackpad or mouse).");
     toggle("inlineValues", "Values in the text", "Write `$name` (in backticks) in a note to show that Python variable's value; it updates after each run.");
+    containerEl.createDiv({ cls: "tahoe-source-link" }).createEl("a", { text: "Source, issues and ideas on GitHub", href: "https://github.com/krishnanefx/obsidian-tahoe-run" });
   }
 
   display() {
@@ -1699,10 +1700,14 @@ class TahoeRunSettingTab extends PluginSettingTab {
       .setDesc("Shift-Enter in a code block runs it and moves to the next block, or starts a new one below the last, like Jupyter.")
       .addToggle((t) => t.setValue(s.shiftEnter).onChange(async (v) => ((s.shiftEnter = v), save())));
 
-    new Setting(containerEl)
+    const sessionSuggestions = new Setting(containerEl)
       .setName("Suggestions from the running session")
       .setDesc("With Tahoe Code: Python blocks suggest from the kernel's live variables (a data frame's real columns, for example), or from your code without running it; MATLAB blocks suggest your variables, fields and methods.")
       .addToggle((t) => t.setValue(s.sessionSuggestions).onChange(async (v) => ((s.sessionSuggestions = v), save())));
+    if (!this.app.plugins.getPlugin("tahoe-code")) {
+      sessionSuggestions.descEl.appendText(" ");
+      sessionSuggestions.descEl.createEl("a", { text: "Get it", href: "obsidian://show-plugin?id=tahoe-code" });
+    }
 
     new Setting(containerEl)
       .setName("Hover to see values")
@@ -1871,5 +1876,6 @@ class TahoeRunSettingTab extends PluginSettingTab {
     }
 
     this.pyodideSection(containerEl);
+    containerEl.createDiv({ cls: "tahoe-source-link" }).createEl("a", { text: "Source, issues and ideas on GitHub", href: "https://github.com/krishnanefx/obsidian-tahoe-run" });
   }
 }

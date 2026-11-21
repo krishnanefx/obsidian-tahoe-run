@@ -28,6 +28,15 @@ const byClass = (el, cls) => el.querySelector(`.${cls}`);
 /* Finding code blocks                                                       */
 /* ======================================================================== */
 
+test("saved output: tag-like names such as <module> can't end the callout, and read back as typed", () => {
+  const line = blocks.outputLine('  File "<cell 7>", line 3, in <module>');
+  ok(line.startsWith(">     "), "an indented code line in the callout");
+  ok(!/<[A-Za-z]/.test(line), `nothing that looks like an HTML tag: ${JSON.stringify(line)}`);
+  eq(blocks.outputText(line), '  File "<cell 7>", line 3, in <module>');
+  eq(blocks.outputLine("a < b and x<3"), ">     a < b and x<3", "comparisons are left alone");
+  eq(blocks.outputText(blocks.outputLine("")), "");
+});
+
 test("blocks: backtick and tilde fences, longer fences, and the language after them", () => {
   const note = "# T\n\n```python\nx = 1\n```\n\n~~~js\nlet a\n~~~\n\n````cpp\nint x;\n````\n\n```Python title=\"demo\"\ny = 2\n```\n\n```{r}\nz <- 3\n```\n\n```\nplain\n```";
   eq(codes(note), [["python", "x = 1"], ["js", "let a"], ["cpp", "int x;"], ["python", "y = 2"], ["r", "z <- 3"], ["", "plain"]]);
