@@ -7,7 +7,8 @@
 
 
 import SOURCE from "./completer.py";
-import { fs, path, os, childProcess } from "./node";
+import { fs, path, os } from "./node";
+import { spawnPython } from "./pylaunch";
 const IDLE_MS = 15 * 60 * 1000;
 
 class StaticCompleter {
@@ -26,7 +27,7 @@ class StaticCompleter {
       this.dir = dir;
       const file = path.join(dir, "tahoe_completer.py");
       fs.writeFileSync(file, SOURCE);
-      this.child = childProcess.spawn(this.python, ["-u", file], { env: this.env, stdio: ["pipe", "pipe", "ignore"] });
+      this.child = spawnPython(this.python, ["-u", { path: file }], { env: this.env, stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       this.dead = true;
       return false;

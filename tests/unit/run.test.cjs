@@ -1512,6 +1512,115 @@ test("kernel: when the kernel dies, the running block, the waiting ones and the 
   await rejects(() => missing.k.ready, /ENOENT/, "a Python that isn't there");
 });
 
+/* ---------- WSL: Python in Linux, from Obsidian on Windows (pylaunch.js) ---------- */
+
+const pylaunch = load("src/pylaunch.js");
+
+// As if Obsidian were running on Windows, with this computer's WSL settings.
+async function asWindows(machineSettings, fn) {
+  const was = obsidian.Platform.isWin;
+  obsidian.Platform.isWin = true;
+  pylaunch.configure(machineSettings);
+  try {
+    return await fn();
+  } finally {
+    obsidian.Platform.isWin = was;
+    pylaunch.configure({});
+  }
+}
+
+test("wsl: which Pythons run in WSL, and the command line that starts them", async () => {
+  await nodeMods.loadNode();
+  await asWindows({}, () => {
+    const where = (p) => {
+      const l = pylaunch.locate(p);
+      return [l.wsl, l.distro, l.python];
+    };
+    eq(where("/usr/bin/python3"), [true, "", "/usr/bin/python3"], "a Linux path");
+    eq(where("C:\\Users\\me\\anaconda3\\python.exe"), [false, "", "C:\\Users\\me\\anaconda3\\python.exe"], "a Windows path");
+    eq(where("python3"), [false, "", "python3"], "a command, with WSL off: Windows'");
+    eq(where("\\\\wsl.localhost\\Ubuntu\\home\\me\\env\\bin\\python"), [true, "Ubuntu", "/home/me/env/bin/python"], "WSL's files as Windows sees them");
+    eq(where("\\\\wsl$\\Debian\\usr\\bin\\python3"), [true, "Debian", "/usr/bin/python3"]);
+    eq(where("wsl:python3.12"), [true, "", "python3.12"], "a command on WSL's PATH");
+    eq([pylaunch.toWslPath("C:\\Users\\me\\Temp\\k.py"), pylaunch.toWslPath("D:\\"), pylaunch.toWslPath("\\\\wsl.localhost\\Ubuntu\\tmp\\x")], ["/mnt/c/Users/me/Temp/k.py", "/mnt/d", "/tmp/x"]);
+    eq([pylaunch.fromWslPath("/mnt/c/Users/me"), pylaunch.fromWslPath("/home/me", ""), pylaunch.fromWslPath("/home/me", "Ubuntu")], ["C:\\Users\\me", null, "\\\\wsl.localhost\\Ubuntu\\home\\me"]);
+
+    const line = pylaunch.pythonCommandLine("/home/me/env/bin/python", ["-u", { path: "C:\\T\\k.py" }], { MPLBACKEND: "Agg", PATH: "C:\\bin", TAHOE_RUN_DIR: "C:\\T", PYTHONPATH: "C:\\T", WSLENV: "FOO:MPLBACKEND/u" });
+    eq([line.command, line.args, line.wsl], ["wsl.exe", ["-e", "/home/me/env/bin/python", "-u", "/mnt/c/T/k.py"], true]);
+    eq(line.env.WSLENV, "FOO:MPLBACKEND:TAHOE_RUN_DIR/p:PYTHONPATH/l", "what it needs goes along, paths translated; Windows' PATH stays behind");
+    const home = pylaunch.pythonCommandLine("~/env/bin/python", ["-V"]);
+    eq(home.args.slice(0, 3), ["-e", "sh", "-c"], "~ is WSL's home, found by its shell");
+    eq(home.args.slice(-2), ["~/env/bin/python", "-V"]);
+    const win = pylaunch.pythonCommandLine("C:\\py\\python.exe", ["-u", { path: "C:\\T\\k.py" }]);
+    eq([win.command, win.args, win.wsl], ["C:\\py\\python.exe", ["-u", "C:\\T\\k.py"], false]);
+  });
+  await asWindows({ wsl: true, distro: "Ubuntu-22.04" }, () => {
+    eq(pylaunch.pythonCommandLine("python3", ["-V"]).args, ["-d", "Ubuntu-22.04", "-e", "python3", "-V"], "with WSL on, a command is WSL's, in the chosen distribution");
+    eq(pylaunch.locate("C:\\py\\python.exe").wsl, false, "a Windows path is still Windows'");
+  });
+  eq([pylaunch.locate("/usr/bin/python3").wsl, pylaunch.pythonCommandLine("/usr/bin/python3", ["-u", { path: "/tmp/k.py" }]).args], [false, ["-u", "/tmp/k.py"]], "elsewhere a Python is just a program");
+});
+
+test("wsl: a kernel in WSL replies on stderr, and Ctrl-C reaches it from inside WSL", async () => {
+  await nodeMods.loadNode();
+  await asWindows({}, async () => {
+    let child;
+    let spawned;
+    const k = await withSpawn(
+      (cmd, args, o) => {
+        spawned = { cmd, args, o };
+        return (child = fakeChild(3));
+      },
+      () => new PythonKernel({ python: "/home/me/env/bin/python", cwd: "C:\\Vault", env: { A: "1" } })
+    );
+    eq([spawned.cmd, spawned.args[0], spawned.args[1], spawned.args.at(-1), spawned.o.stdio.length], ["wsl.exe", "-e", "/home/me/env/bin/python", "--protocol=stderr", 3]);
+    ok(spawned.args[3].startsWith("/"), `the kernel's script as WSL sees it: ${spawned.args[3]}`);
+    emit(child.stderr, `${RS}TAHOE-MSG:${JSON.stringify({ type: "ready", python: "3.12.3", pid: 4242 })}${RS}`);
+    await k.ready;
+    eq([k.version, k.pid, k.state], ["3.12.3", 4242, "idle"]);
+
+    const o = new RunOutput("w");
+    const done = k.execute("1/0", o);
+    const id = JSON.parse(child.sent[0]).id;
+    emit(child.stdout, "before\n");
+    // The reply split across reads, between the cell's own stderr.
+    const reply = `${RS}TAHOE-MSG:${JSON.stringify({ type: "done", id, ok: false, cell: 1, error: { ename: "ZeroDivisionError" }, figures: [] })}${RS}`;
+    emit(child.stderr, `Traceback (most recent call last):\nZeroDivisionError: division by zero\n${reply.slice(0, 20)}`);
+    emit(child.stderr, `${reply.slice(20)}${RS}TAHOE-DONE:${id}${RS}`);
+    emit(child.stdout, `${RS}TAHOE-DONE:${id}${RS}`);
+    const r = await done;
+    eq([r.ok, r.error.ename], [false, "ZeroDivisionError"]);
+    eq(o.text(), "before\nTraceback (most recent call last):\nZeroDivisionError: division by zero\n", "the error is shown; the reply isn't");
+
+    // Interrupt: kill -INT inside WSL, by the kernel's Linux pid.
+    const calls = [];
+    const was = childProcess.execFile;
+    childProcess.execFile = (cmd, args, opts, cb) => (calls.push([cmd, ...args]), cb && cb(null, "", ""), {});
+    try {
+      k.execute("while True: pass", new RunOutput("x"));
+      ok(k.interrupt(), "it interrupts");
+      eq(calls, [["wsl.exe", "-e", "kill", "-INT", "4242"]]);
+      eq(child.signals, [], "nothing sent to wsl.exe itself");
+      k.kill();
+      eq(calls.at(-1), ["wsl.exe", "-e", "kill", "-KILL", "4242"], "killing it reaches the Python, not just wsl.exe");
+    } finally {
+      childProcess.execFile = was;
+    }
+  });
+});
+
+test("kernel: a kernel that quits while starting says what it printed", async () => {
+  const s = await fakeKernel();
+  emit(s.c.stderr, "Traceback (most recent call last):\nModuleNotFoundError: No module named 'encodings'\n");
+  s.c.emit("exit", 1, null);
+  s.c.emit("close", 1, null);
+  await rejects(() => s.k.ready, /^Kernel exited with code 1:\nTraceback \(most recent call last\):\nModuleNotFoundError: No module named 'encodings'$/);
+  const w = await fakeKernel({ python: "/no/python" });
+  emit(w.c.stderr, "<3>WSL (2234 - Relay) ERROR: CreateProcessCommon:881: execvpe(/no/python) failed: No such file or directory\n");
+  w.c.emit("exit", 1, null);
+  await rejects(() => w.k.ready, /^Kernel exited with code 1:\n\/no\/python doesn't exist in WSL\.$/, "WSL's complaint, in plain words");
+});
+
 test("kernel: shutting down asks politely, then makes sure", async () => {
   const { k, c, ready } = await fakeKernel();
   await ready();
@@ -2108,6 +2217,35 @@ test("plugin: a note's python: property picks its Python, if it's there", async 
   });
 });
 
+test("plugin: the Python chosen for a note is kept per computer, and follows the note", async () => {
+  await nodeMods.loadNode();
+  const home = tmpdir("tahoe-home-");
+  const py = fakePython(path.join(home, ".venvs", "a", "bin", "python"), "3.12.1", true);
+  const other = fakePython(path.join(home, ".venvs", "b", "bin", "python"), "3.11.0", true);
+  const vault = new FakeVault();
+  for (const n of ["A.md", "B.md"]) vault.put(n, "");
+  const p = await makePlugin({ vault, frontmatter: { "B.md": { python: py } }, data: { machines: { "another-computer": { python: "/opt/other/python", notes: { "A.md": "/elsewhere/python" } } } } });
+  const file = (n) => new obsidian.TFile(n);
+  eq(p.notePython("A.md"), null, "another computer's choice isn't this one's");
+  await p.setNotePython(file("A.md"), { kind: "venv", name: "a", python: py, version: "3.12.1" });
+  eq([p.notePython("A.md"), p.machine.notes["A.md"]], [py, py]);
+  eq(p.settings.machines["another-computer"].notes["A.md"], "/elsewhere/python", "and the other computer's is left alone");
+  eq(p.notePython("B.md"), py, "without a choice here, the python: property");
+  await p.setNotePython(file("B.md"), { kind: "default", name: "Default" });
+  eq([p.notePython("B.md"), p.pythonFor("B.md")], [null, "python3"], "the default here, whatever python: says");
+  await p.setNotePython(file("B.md"), { kind: "path", python: path.dirname(path.dirname(other)) });
+  eq(p.notePython("B.md"), other, "a venv's folder, pasted, is its Python");
+
+  await p.saveMachine({ python: py });
+  eq([p.pythonCommand(), p.pythonFor("Unchosen.md")], [py, py], "this computer's default Python");
+  eq(p.settings.machines["another-computer"].python, "/opt/other/python");
+
+  p.vaultEvents.rename(file("Moved.md"), "A.md");
+  eq([p.machine.notes["Moved.md"], "A.md" in p.machine.notes], [py, false], "a renamed note keeps its Python");
+  p.vaultEvents.delete(file("Moved.md"));
+  eq("Moved.md" in p.machine.notes, false, "a deleted one forgets it");
+});
+
 function shiftEnter(p, text, cursor) {
   const ed = new FakeEditor(text, cursor);
   const file = new obsidian.TFile("Labs/Lab.md");
@@ -2187,7 +2325,11 @@ test("plugin: a kernel's result becomes the card: value, plots, cell number, sto
   eq([o.status, o.sessionEnded], ["error", true], "a run cut short by a restart isn't saved");
   p.kernelFor = () => ({ state: "dead", ready: Promise.reject(new Error("spawn python3 ENOENT")) });
   await p.runInKernel(block, p.resolve("python"), o);
-  eq([o.status, o.text()], ["error", "Couldn't start Python (python3): spawn python3 ENOENT"]);
+  eq([o.status, o.text()], ["error", "Couldn't start Python (python3): python3 wasn't found.\n\nChoose Python for this note… from the command palette, or set this computer's Python in Settings → Tahoe Run."]);
+  // A kernel that started and quit says what it printed.
+  p.kernelFor = () => ({ state: "dead", ready: Promise.reject(new Error("Kernel exited with code 1:\nModuleNotFoundError: No module named 'encodings'")) });
+  await p.runInKernel(block, p.resolve("python"), o);
+  match(o.text(), /^Couldn't start Python \(python3\): Kernel exited with code 1:\nModuleNotFoundError: No module named 'encodings'\n/);
 });
 
 test("plugin: MATLAB that isn't installed says where to set it", async () => {

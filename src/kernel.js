@@ -5,12 +5,26 @@
 
 
 import KERNEL_SOURCE from "./kernel.py";
-import { fs, path, os, childProcess } from "./node";
+import { fs, path, os } from "./node";
+import { spawnPython, signalWsl, isWslPython } from "./pylaunch";
 
 // Replies are framed by the record separator (U+001E), which never appears in output.
 const RS = String.fromCharCode(0x1e);
 // On stdout and stderr: the end of a cell, and where each rich output (display()) goes.
-const MARKER = new RegExp(`${RS}TAHOE-(DONE|DISPLAY):([^${RS}]*)${RS}`);
+// A kernel in WSL also sends its replies on stderr, as TAHOE-MSG (see kernel.py).
+const MARKER = new RegExp(`${RS}TAHOE-(DONE|DISPLAY|MSG):([^${RS}]*)${RS}`);
+
+// What the kernel printed before it was ready (a traceback, WSL's complaint),
+// kept so a kernel that fails to start says why.
+const STARTUP_TAIL = 4000;
+
+// "wsl.exe -e /no/such/python": WSL says so in its own words.
+function explainStartup(text) {
+  const t = String(text || "").trim();
+  const m = /execvpe\(([^)]*)\) failed: No such file or directory/.exec(t);
+  if (m) return `${m[1]} doesn't exist in WSL.`;
+  return t;
+}
 
 let kernelFile = null;
 function kernelScript() {
@@ -41,23 +55,29 @@ class PythonKernel {
   }
 
   start() {
-    const child = childProcess.spawn(this.python, ["-u", kernelScript()], {
-      cwd: this.cwd,
-      env: this.env,
-      stdio: ["pipe", "pipe", "pipe", "pipe"],
-    });
+    this.startupErr = "";
+    this.pid = 0;
+    // A WSL Python gets only stdin, stdout and stderr through wsl.exe, so it
+    // replies on stderr; any other Python replies on a fourth pipe (fd 3),
+    // which leaves stderr to the cell.
+    this.wsl = isWslPython(this.python) ? { distro: "" } : null;
+    const args = ["-u", { path: kernelScript() }, ...(this.wsl ? ["--protocol=stderr"] : [])];
+    const child = spawnPython(this.python, args, { cwd: this.cwd, env: this.env, stdio: this.wsl ? ["pipe", "pipe", "pipe"] : ["pipe", "pipe", "pipe", "pipe"] });
     this.child = child;
+    this.wsl = child.tahoeWsl;
     this.streams = { out: { buffer: "", done: null }, err: { buffer: "", done: null } };
     this.ready = new Promise((resolve, reject) => {
       this.resolveReady = resolve;
       this.rejectReady = reject;
     });
 
+    // As text, so a character split between two reads isn't garbled.
+    for (const s of [child.stdout, child.stderr]) if (s.setEncoding) s.setEncoding("utf8");
     child.stdout.on("data", (d) => this.onStream("out", d.toString()));
     child.stderr.on("data", (d) => this.onStream("err", d.toString()));
 
     let protocol = "";
-    child.stdio[3].on("data", (d) => {
+    if (child.stdio[3]) child.stdio[3].on("data", (d) => {
       protocol += d.toString();
       let nl;
       while ((nl = protocol.indexOf("\n")) >= 0) {
@@ -73,7 +93,19 @@ class PythonKernel {
     });
 
     child.on("error", (error) => this.die(String(error.message || error)));
-    child.on("exit", (code, signal) => this.die(signal ? `Kernel stopped (${signal})` : `Kernel exited with code ${code}`));
+    child.on("exit", (code, signal) => {
+      const reason = signal ? `Kernel stopped (${signal})` : `Kernel exited with code ${code}`;
+      if (this.state !== "starting") return this.die(reason);
+      // It never got going: wait for the rest of what it printed, which says why.
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        this.die(reason);
+      };
+      child.once("close", finish);
+      window.setTimeout(finish, 300);
+    });
   }
 
   /* ---------- incoming ---------- */
@@ -88,6 +120,14 @@ class PythonKernel {
         stream.buffer = stream.buffer.slice(m.index + m[0].length);
         if (m[1] === "DISPLAY") {
           if (this.current) this.current.output.markDisplay(Number(m[2]));
+          continue;
+        }
+        if (m[1] === "MSG") {
+          try {
+            this.onMessage(JSON.parse(m[2]));
+          } catch {
+            /* ignore a malformed reply */
+          }
           continue;
         }
         stream.done = m[2];
@@ -106,11 +146,13 @@ class PythonKernel {
   emitText(name, text) {
     if (!text) return;
     if (this.current) this.current.output.append(name, text);
+    else if (this.state === "starting") this.startupErr = (this.startupErr + text).slice(-STARTUP_TAIL);
   }
 
   onMessage(message) {
     if (message.type === "ready") {
       this.version = message.python || "";
+      this.pid = message.pid || 0;
       this.state = "idle";
       this.resolveReady();
       this.pump();
@@ -182,12 +224,14 @@ class PythonKernel {
 
   die(reason) {
     if (this.state === "dead") return;
+    const starting = this.state === "starting";
     this.state = "dead";
     if (this.paused && this.onPaused) {
       this.paused = null;
       this.onPaused(null);
     }
-    if (this.rejectReady) this.rejectReady(new Error(reason));
+    const printed = starting ? explainStartup(this.startupErr) : "";
+    if (this.rejectReady) this.rejectReady(new Error(printed ? `${reason}:\n${printed}` : reason));
     const pending = [this.current, ...this.queue].filter(Boolean);
     this.current = null;
     this.queue = [];
@@ -292,10 +336,15 @@ class PythonKernel {
   interrupt() {
     if (this.state === "paused") return this.debug("stop");
     if (this.state !== "busy") return false;
-    try {
-      this.child.kill("SIGINT");
-    } catch {
-      // it has already exited
+    if (this.wsl) {
+      // Ctrl-C reaches a WSL Python only from inside WSL.
+      signalWsl(this.wsl.distro, this.pid, "INT");
+    } else {
+      try {
+        this.child.kill("SIGINT");
+      } catch {
+        // it has already exited
+      }
     }
     const job = this.current;
     window.setTimeout(() => {
@@ -306,6 +355,7 @@ class PythonKernel {
 
   kill(reason = "Kernel restarted") {
     if (this.state === "dead") return;
+    if (this.wsl) signalWsl(this.wsl.distro, this.pid, "KILL");
     try {
       this.child.stdin.end();
       this.child.kill("SIGKILL");

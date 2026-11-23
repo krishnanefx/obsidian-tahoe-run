@@ -8,7 +8,8 @@
 |---|---|---|---|
 | macOS | Supported | macOS 27, Obsidian 1.13 or later | None known |
 | iPhone and iPad | Beta, Python only | Obsidian's mobile mode on a Mac, not yet a real device | A running block can't be stopped; no debugger, `input()` or pip |
-| Windows, Linux | Untested | Not yet | Written to work; MATLAB has to be on your PATH or set in settings |
+| Windows | Python tested; the rest untested | Windows 11 with WSL 2 (Ubuntu): Python kernels in WSL and with Windows' own Python | Stop restarts a kernel running Windows' own Python (one in WSL stops like on a Mac); MATLAB has to be on your PATH or set in settings |
+| Linux | Untested | Not yet | Written to work; MATLAB has to be on your PATH or set in settings |
 
 ![Stepping through a breakpoint while the variables view updates](images/debugger-demo.png)
 
@@ -50,8 +51,18 @@ If you try it on Windows, Linux or a real iPhone or iPad, I'd like to hear how i
 ### Python
 
 - **Kernel:** one live Python per note, with restart and interrupt commands. Idle kernels stop after 30 minutes (adjustable).
-- **Choose Python for this note…** lists the Pythons on your computer (virtual environments near the note and in `~/.virtualenvs`, conda, pyenv, Homebrew, python.org) and can make a new virtual environment. The choice is saved as the note's `python:` property.
+- **Choose Python for this note…** lists the Pythons on your computer (virtual environments near the note and in `~/.virtualenvs`, conda, pyenv, Homebrew, python.org, and on Windows the ones in WSL) and can make a new virtual environment. To use a venv that isn't listed, paste its folder or its Python into the picker. The choice is kept for this computer only, so a synced vault can use a different Python for the same note on each computer. A note's `python:` property still works, as the choice on computers where that Python exists and nothing else was chosen.
+- **Python on this computer** (in the settings) sets the Python that notes use when they have none of their own, kept per computer like the choices above.
 - **Debugger:** only blocks with breakpoints are traced, so code runs at full speed until it reaches one. Step into goes into functions defined in earlier blocks; library code is stepped over. While paused, the variables view and hover values show the paused function's variables. Keys: F6 over, F7 into, F8 out, ⌃⌘Y continue.
+
+### Windows and WSL
+
+On Windows, Python can run in Windows or in [WSL](https://learn.microsoft.com/windows/wsl/), the Linux alongside it, so the virtual environments you made in WSL work, as in VS Code's WSL mode.
+
+- A Python whose path starts with `/` (`/home/you/envs/main/bin/python`, `/mnt/c/Users/you/project/env/bin/python`, `/usr/bin/python3`) or `\\wsl.localhost\…` runs in WSL. So does a command written as `wsl:python3`.
+- **Run Python in WSL** (Settings → Tahoe Run → Python on this computer) makes a plain command like `python3` WSL's too, and you can choose the WSL distribution there.
+- *Choose Python for this note…* lists WSL's Pythons (`/usr/bin/python3`, venvs in WSL's home folder, conda and pyenv) alongside Windows' own. A venv made in WSL inside a Windows folder (`C:\…\project\env`, with a `bin` folder) can be pasted by its Windows path.
+- In WSL the debugger, input(), plots, rich output and Stop work as on a Mac, and pip installs go into the WSL Python. With Windows' own Python, Stop restarts the kernel instead (Windows has no Ctrl-C to send it).
 
 ### MATLAB
 
@@ -100,7 +111,7 @@ When a block fails, its output gets an **Explain** button: a model reads the cod
   - *Python on iPhone and iPad:* Pyodide is downloaded from cdn.jsdelivr.net when you press Download in the settings, and its packages from the same place when a block first imports them. Pyodide's own files are checked against SHA-256s pinned in the plugin, and each package against the SHA-256 in Pyodide's package list, before they're kept.
   - *Installing a missing package* runs `pip`, which downloads from PyPI, after you confirm.
   - *Explain with Claude* sends the failing block's code and output to Anthropic's API (api.anthropic.com) with your API key. Apple Intelligence runs on your Mac, and Ollama on your own computer (localhost), so with those your code doesn't leave it.
-- **Files outside your vault:** runs use temporary folders in your system's temp folder. *Choose Python… → New environment* creates it in `~/.virtualenvs`. The Apple Intelligence helper is kept in `~/Library/Caches/tahoe-run`. To list your Pythons, it looks in the usual places they're installed.
+- **Files outside your vault:** runs use temporary folders in your system's temp folder. *Choose Python… → New environment* creates it in `~/.virtualenvs` (in WSL's home folder for a WSL Python). On Windows, finding Pythons runs a short script in WSL that lists them. Python settings are kept under this computer's name (its hostname) in the plugin's settings, so each computer that opens a synced vault has its own. The Apple Intelligence helper is kept in `~/Library/Caches/tahoe-run`. To list your Pythons, it looks in the usual places they're installed.
 - **Clipboard:** it writes to the clipboard only when you press a Copy button (an output, a sheet as Markdown or CSV, or a prompt for a chat app). It never reads the clipboard.
 - **Rich output** (HTML and Plotly charts from your code) is shown in sandboxed frames: they can't reach your vault, Obsidian or the network. Plotly's own script comes from the plotly package installed in your Python.
 - **No telemetry, ads or accounts.** Claude needs your own Anthropic API key, only if you choose it.

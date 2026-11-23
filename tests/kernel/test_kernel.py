@@ -789,3 +789,31 @@ class StaticCompleter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StderrProtocol(unittest.TestCase):
+    """Started through wsl.exe (a WSL Python, from Obsidian on Windows), the
+    kernel has no fd 3: with --protocol=stderr its replies go on stderr, each
+    framed by U+001E, between the cell's own stderr."""
+
+    def run_kernel(self, commands):
+        proc = subprocess.Popen([sys.executable, "-u", KERNEL, "--protocol=stderr"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=plugin_env(), close_fds=True)
+        lines = "".join(json.dumps(c) + "\n" for c in commands + [{"type": "shutdown"}])
+        out, err = proc.communicate(lines.encode(), timeout=TIMEOUT)
+        return out.decode(), err.decode()
+
+    def test_replies_are_framed_on_stderr_and_the_cells_errors_stay_readable(self):
+        out, err = self.run_kernel([
+            {"type": "execute", "id": "a", "code": "print('hi')\n1/0"},
+            {"type": "values", "id": "v", "exprs": ["x"]},
+        ])
+        messages = [json.loads(m) for m in re.findall("\x1eTAHOE-MSG:([^\x1e]*)\x1e", err)]
+        kinds = [m["type"] for m in messages]
+        self.assertEqual(kinds[0], "ready")
+        self.assertIn("done", kinds)
+        done = next(m for m in messages if m["type"] == "done")
+        self.assertEqual((done["id"], done["ok"], done["error"]["ename"]), ("a", False, "ZeroDivisionError"))
+        self.assertIn("values", kinds, "questions are answered on stderr too")
+        rest = re.sub("\x1eTAHOE-(MSG|DONE|DISPLAY):[^\x1e]*\x1e", "", err)
+        self.assertIn("ZeroDivisionError: division by zero", rest, "the traceback is the cell's stderr, outside any frame")
+        self.assertIn("hi\n", out)

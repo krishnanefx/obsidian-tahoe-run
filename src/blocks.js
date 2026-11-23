@@ -1,5 +1,7 @@
 /* Shared pieces: language table, fenced-code parsing, small helpers. */
 
+import { Platform } from "obsidian";
+
 // {file} source file · {out} compiled binary · {dir} temp folder. Paths are shell-quoted.
 const LANGUAGES = [
   { id: "python", label: "Python", aliases: ["python", "py", "python3"], ext: "py", run: "python3 {file}" },
@@ -65,7 +67,9 @@ function findCodeBlocks(lines) {
   return blocks;
 }
 
+// Commands run in sh (macOS, Linux) or cmd.exe (Windows), which quote differently.
 function shellQuote(s) {
+  if (Platform.isWin) return `"${String(s).replace(/"/g, '""')}"`;
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 

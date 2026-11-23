@@ -23,9 +23,19 @@ import warnings
 # As the desktop kernel, replies go out on fd 3 and commands come in on stdin.
 # Imported inside Pyodide (Python on iPhone), there are no pipes: the plugin
 # calls run_cell() and the helpers directly.
+# Started through wsl.exe (a WSL Python, from Obsidian on Windows), only fds 0-2
+# reach the kernel, so with --protocol=stderr replies go on stderr instead, each
+# framed by U+001E like the end markers (JSON never contains a raw U+001E).
 KERNEL = __name__ == "__main__"
-PROTOCOL = os.fdopen(3, "w", buffering=1) if KERNEL else None
-COMMANDS = os.fdopen(os.dup(0), "r") if KERNEL else None
+STDERR_PROTOCOL = KERNEL and "--protocol=stderr" in sys.argv[1:]
+RS = "\x1e"
+if not KERNEL:
+    PROTOCOL = None
+elif STDERR_PROTOCOL:
+    PROTOCOL = os.fdopen(os.dup(2), "w", buffering=1, encoding="utf-8", errors="replace")
+else:
+    PROTOCOL = os.fdopen(3, "w", buffering=1)
+COMMANDS = os.fdopen(os.dup(0), "r", encoding="utf-8", errors="replace") if KERNEL else None
 
 
 def _no_input(prompt=""):
@@ -116,7 +126,12 @@ CELL_SOURCES = {}  # "<cell 3>" -> its code, to find where a block's breakpoints
 
 
 def send(message):
-    PROTOCOL.write(json.dumps(message) + "\n")
+    if STDERR_PROTOCOL:
+        # The cell's own stderr first, so nothing of it lands inside the frame.
+        flush_streams()
+        PROTOCOL.write(RS + "TAHOE-MSG:" + json.dumps(message) + RS)
+    else:
+        PROTOCOL.write(json.dumps(message) + "\n")
     PROTOCOL.flush()
 
 
