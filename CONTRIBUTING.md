@@ -7,6 +7,9 @@ Thanks for helping. Tahoe Run is a small project made and kept up by one person,
 - **A bug:** [open an issue](https://github.com/krishnanefx/obsidian-tahoe-run/issues/new/choose) with the bug form. The steps to reproduce it, your Tahoe Run and Obsidian versions and your device are what make a bug fixable.
 - **An idea:** the feature-request form. Say what you were trying to do before how it could work.
 - **A question, or help setting it up:** [Discussions](https://github.com/krishnanefx/obsidian-tahoe-run/discussions).
+- **A security problem:** report it privately, as [SECURITY.md](SECURITY.md) explains, not in an issue.
+
+Everyone taking part is asked to follow the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Pull requests
 
