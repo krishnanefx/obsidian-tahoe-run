@@ -108,6 +108,13 @@ test("blocks: commands get shell-quoted paths that survive the shell", () => {
   eq(blocks.shellQuote("it's"), `'it'\\''s'`);
 });
 
+test("blocks: on Windows, paths are double-quoted for cmd.exe", () => {
+  const file = "C:\\Users\\Ana Li\\AppData\\Local\\Temp\\tahoe-run-x\\main.py";
+  eq(blocks.fill("py {file}", { file }, true), `py "${file}"`, "cmd.exe has no single quotes");
+  eq(blocks.shellQuote('say "hi"', true), '"say ""hi"""');
+  eq(blocks.fill("python3 {file}", { file: "/tmp/a b.py" }, false), "python3 '/tmp/a b.py'", "elsewhere, as before");
+});
+
 test("blocks: durations read naturally", () => {
   eq([0.2, 12, 999.6, 1234, 12345, 61000, 125400].map(blocks.formatDuration), ["1 ms", "12 ms", "1000 ms", "1.23 s", "12.3 s", "1 min 1 s", "2 min 5 s"]);
 });
@@ -952,6 +959,42 @@ test("envs: ~ in a note's python: property, and back for display", async () => {
     eq([envs.expand("~/venvs/a/bin/python"), envs.expand("~"), envs.expand("/abs/~/x"), envs.expand("")], ["/Users/someone/venvs/a/bin/python", "/Users/someone", "/abs/~/x", ""]);
     eq([envs.tilde("/Users/someone/.venv/bin/python"), envs.tilde("/Users/someoneelse/x"), envs.tilde("/usr/bin/python3")], ["~/.venv/bin/python", "/Users/someoneelse/x", "/usr/bin/python3"]);
   });
+});
+
+test("envs: on Windows, environments keep Python in Scripts\\python.exe, conda at the top", async () => {
+  await nodeMods.loadNode();
+  const home = tmpdir("tahoe-home-");
+  const vault = path.join(home, "Vault");
+  const noteDir = path.join(vault, "Course");
+  const local = path.join(home, "AppData", "Local");
+  fs.writeFileSync(path.join(fakePython(path.join(noteDir, ".venv", "Scripts", "python.exe"), "3.12.1", true), "..", "..", "pyvenv.cfg"), "home = x\n");
+  fakePython(path.join(noteDir, ".venv", "bin", "python"), "3.12.1", true); // the Mac layout isn't looked for
+  fakePython(path.join(home, ".virtualenvs", "robotics", "Scripts", "python.exe"), "3.11.9", true);
+  fakePython(path.join(home, "miniconda3", "python.exe"), "3.13.0", true);
+  fakePython(path.join(home, "miniconda3", "envs", "ml", "python.exe"), "3.10.14", true);
+  fakePython(path.join(home, ".pyenv", "pyenv-win", "versions", "3.9.13", "python.exe"), "3.9.13", false);
+  fakePython(path.join(local, "Programs", "Python", "Python39", "python.exe"), "3.9.7", false);
+  fakePython(path.join(local, "Programs", "Python", "Python313", "python.exe"), "3.13.1", false);
+  const was = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = local;
+  let found;
+  try {
+    found = await withHome(home, () => envs.findPythons(noteDir, vault, { windows: true }));
+  } finally {
+    if (was === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = was;
+  }
+  eq(found.filter((f) => f.python.startsWith(home)).map((f) => [f.kind, f.name, path.relative(home, f.python)]), [
+    ["venv", "Course/.venv", path.join("Vault", "Course", ".venv", "Scripts", "python.exe")],
+    ["venv", "robotics", path.join(".virtualenvs", "robotics", "Scripts", "python.exe")],
+    ["conda", "conda base (miniconda3)", path.join("miniconda3", "python.exe")],
+    ["conda", "ml", path.join("miniconda3", "envs", "ml", "python.exe")],
+    ["pyenv", "pyenv 3.9.13", path.join(".pyenv", "pyenv-win", "versions", "3.9.13", "python.exe")],
+    ["system", "python.org Python313", path.join("AppData", "Local", "Programs", "Python", "Python313", "python.exe")],
+    ["system", "python.org Python39", path.join("AppData", "Local", "Programs", "Python", "Python39", "python.exe")],
+  ], "newest python.org install first");
+  eq([envs.venvPython("/v", true), envs.venvPython("/v", false)], [path.join("/v", "Scripts", "python.exe"), path.join("/v", "bin", "python")]);
+  await withHome("/Users/someone", () => eq(envs.expand("~\\venvs\\a\\Scripts\\python.exe"), "/Users/someone\\venvs\\a\\Scripts\\python.exe", "~\\ as well as ~/"));
 });
 
 test("envs: probing a Python reports its version and whether it's an environment", async () => {
@@ -2154,6 +2197,35 @@ test("plugin: languages resolve by alias in any case, and settings can change th
   eq((await makePlugin({ data: { commands: { python: { run: "{file}" } } } })).pythonCommand(), "python3");
 });
 
+test("plugin: on Windows, Python is the first of py, python and python3 that starts, unless settings say otherwise", async () => {
+  await nodeMods.loadNode();
+  const bin = tmpdir();
+  script(path.join(bin, "py"), "exit 49"); // like the Microsoft Store's placeholder, which exits with 9009
+  fakePython(path.join(bin, "python"), "3.12.4", false);
+  fakePython(path.join(bin, "python3"), "3.11.0", false);
+  const wasPath = process.env.PATH;
+  const wasWin = obsidian.Platform.isWin;
+  process.env.PATH = `${bin}${path.delimiter}${wasPath}`;
+  obsidian.Platform.isWin = true;
+  try {
+    const p = await makePlugin();
+    eq(await p.pythonFound, "python");
+    eq([p.resolve("python").run, p.pythonCommand()], ["python {file}", "python"]);
+    const own = await makePlugin({ data: { commands: { python: { run: '"C:/Program Files/Python313/python.exe" -X dev {file}' } } } });
+    await own.pythonFound;
+    eq([own.resolve("python").run, own.pythonCommand()], ['"C:/Program Files/Python313/python.exe" -X dev {file}', "C:/Program Files/Python313/python.exe"], "a command from settings wins, and a quoted path with spaces is one word");
+    fs.rmSync(path.join(bin, "python"));
+    fs.rmSync(path.join(bin, "python3"));
+    process.env.PATH = bin; // just the placeholder
+    const none = await makePlugin();
+    eq([await none.pythonFound, none.pythonCommand()], [null, "python3"], "with no Python at all, the error names python3 as before");
+  } finally {
+    process.env.PATH = wasPath;
+    obsidian.Platform.isWin = wasWin;
+  }
+  eq(await (await makePlugin()).pythonFound, null, "not on a Mac");
+});
+
 test("plugin: a MATLAB session uses the matlab in the run command", async () => {
   const p = await makePlugin();
   eq([p.matlabCommand(p.resolve("matlab")), p.matlabCommand({ run: "/Applications/MATLAB_R2024b.app/bin/matlab -batch x" }), p.matlabCommand(p.resolve("octave")), p.matlabCommand({ run: "matlabx {file}" })], ["matlab", "/Applications/MATLAB_R2024b.app/bin/matlab", null, null]);
@@ -2239,6 +2311,14 @@ test("plugin: the Python chosen for a note is kept per computer, and follows the
   await p.saveMachine({ python: py });
   eq([p.pythonCommand(), p.pythonFor("Unchosen.md")], [py, py], "this computer's default Python");
   eq(p.settings.machines["another-computer"].python, "/opt/other/python");
+
+  await p.saveMachine({ python: "" });
+  p.windowsPython = "py"; // as Windows' own Python is found when the plugin starts
+  eq(p.resolve("python").run, "py {file}");
+  await p.saveMachine({ wsl: true });
+  eq(p.resolve("python").run, "python3 {file}", "with Python in WSL, a plain python3 is WSL's, not Windows' own");
+  await p.saveMachine({ wsl: false });
+  p.windowsPython = null;
 
   p.vaultEvents.rename(file("Moved.md"), "A.md");
   eq([p.machine.notes["Moved.md"], "A.md" in p.machine.notes], [py, false], "a renamed note keeps its Python");
@@ -2330,6 +2410,15 @@ test("plugin: a kernel's result becomes the card: value, plots, cell number, sto
   p.kernelFor = () => ({ state: "dead", ready: Promise.reject(new Error("Kernel exited with code 1:\nModuleNotFoundError: No module named 'encodings'")) });
   await p.runInKernel(block, p.resolve("python"), o);
   match(o.text(), /^Couldn't start Python \(python3\): Kernel exited with code 1:\nModuleNotFoundError: No module named 'encodings'\n/);
+  const wasWin = obsidian.Platform.isWin;
+  obsidian.Platform.isWin = true;
+  try {
+    p.kernelFor = () => ({ state: "dead", ready: Promise.reject(new Error("Kernel exited with code 9009")) });
+    await p.runInKernel(block, p.resolve("python"), o);
+    match(o.text(), /^Couldn't start Python \(python3\): Kernel exited with code 9009\nWindows couldn't find python3: exit code 9009 means "not found"[\s\S]*python\.org[\s\S]*Settings → Tahoe Run → Languages\.$/);
+  } finally {
+    obsidian.Platform.isWin = wasWin;
+  }
 });
 
 test("plugin: MATLAB that isn't installed says where to set it", async () => {

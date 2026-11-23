@@ -1,7 +1,5 @@
 /* Shared pieces: language table, fenced-code parsing, small helpers. */
 
-import { Platform } from "obsidian";
-
 // {file} source file · {out} compiled binary · {dir} temp folder. Paths are shell-quoted.
 const LANGUAGES = [
   { id: "python", label: "Python", aliases: ["python", "py", "python3"], ext: "py", run: "python3 {file}" },
@@ -67,14 +65,16 @@ function findCodeBlocks(lines) {
   return blocks;
 }
 
-// Commands run in sh (macOS, Linux) or cmd.exe (Windows), which quote differently.
-function shellQuote(s) {
-  if (Platform.isWin) return `"${String(s).replace(/"/g, '""')}"`;
+// Commands run in zsh/sh, or in cmd.exe on Windows, which has no single quotes.
+const WINDOWS = typeof process !== "undefined" && process.platform === "win32";
+
+function shellQuote(s, windows = WINDOWS) {
+  if (windows) return `"${String(s).replace(/"/g, '""')}"`;
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 
-function fill(template, vars) {
-  return template.replace(/\{(file|out|dir)\}/g, (_, k) => shellQuote(vars[k]));
+function fill(template, vars, windows = WINDOWS) {
+  return template.replace(/\{(file|out|dir)\}/g, (_, k) => shellQuote(vars[k], windows));
 }
 
 function formatDuration(ms) {

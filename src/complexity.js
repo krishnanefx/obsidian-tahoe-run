@@ -7,7 +7,7 @@
  *   the competitive-programming setup — after compiling it once.
  */
 
-import { Modal, Setting } from "obsidian";
+import { Modal, Setting, Platform } from "obsidian";
 // The chart is drawn on iPhone too (saved outputs); measuring needs the Mac.
 
 import HARNESS_SOURCE from "./complexity.py";
@@ -428,6 +428,7 @@ async function runComplexity(ctx) {
   output.startedAt = Date.now();
   output.changed();
 
+  if (Platform.isWin && plugin.pythonFound) await plugin.pythonFound;
   const job = await plugin.prepareJob(def, code, ctx.sourcePath, { figures: false });
   const python = plugin.pythonCommand();
   const harness = path.join(job.dir, "tahoe_complexity.py");
@@ -497,7 +498,7 @@ async function runComplexity(ctx) {
         let best = Infinity;
         for (let r = 0; r < 3; r++) {
           const t0 = process.hrtime.bigint();
-          const res = await plugin.spawn(`${job.runCommand} < ${plugin.shellQuote(input)} > /dev/null`, job.cwd, job.env, null, { timeout: (config.perSize * 6 + 5) * 1000 });
+          const res = await plugin.spawn(`${job.runCommand} < ${plugin.shellQuote(input)} > ${Platform.isWin ? "NUL" : "/dev/null"}`, job.cwd, job.env, null, { timeout: (config.perSize * 6 + 5) * 1000 });
           const t = Number(process.hrtime.bigint() - t0) / 1e9;
           if (res.code !== 0) {
             chart.error = res.timedOut

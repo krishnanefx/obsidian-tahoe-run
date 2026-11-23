@@ -2,10 +2,11 @@
  * Python environments. A note can pick its own Python — a virtual
  * environment, a conda env, pyenv, Homebrew — for this computer (see
  * main.js); otherwise it uses this computer's default. This finds the ones
- * here and installs missing packages into the note's Python.
- *
- * On Windows that includes the Pythons inside WSL (see pylaunch.js): the
- * virtual environments made there, near the note or in WSL's home folder.
+ * here and installs missing packages into the note's Python. On Windows,
+ * environments keep Python in Scripts\python.exe (conda: python.exe at the
+ * top), not bin/python, and the Pythons inside WSL (see pylaunch.js) are
+ * found too: the virtual environments made there, near the note or in WSL's
+ * home folder.
  */
 
 import { Platform } from "obsidian";
@@ -13,13 +14,15 @@ import { missingModule, pipNameFor } from "./pipnames";
 import { fs, path, os, childProcess } from "./node";
 import { spawnPython, execPython, isWindows, hasWsl, toWslPath, locate, machine } from "./pylaunch";
 
-// ~ is the home folder. On Windows, ~\ is Windows' home and ~/ is WSL's (pylaunch.js).
-const expand = (p) => String(p || "").replace(isWindows() ? /^~(?=\\|$)/ : /^~(?=\/|$)/, os.homedir());
-const tilde = (p) => {
-  const home = os.homedir();
-  for (const sep of ["/", "\\"]) if (p.startsWith(home + sep)) return `~${p.slice(home.length)}`;
-  return p;
-};
+const WINDOWS = typeof process !== "undefined" && process.platform === "win32";
+const ENV = typeof process !== "undefined" ? process.env : {};
+
+const expand = (p) => String(p || "").replace(/^~(?=[/\\]|$)/, os.homedir());
+const tilde = (p) => (p.startsWith(os.homedir() + "/") || p.startsWith(os.homedir() + "\\") ? `~${p.slice(os.homedir().length)}` : p);
+
+// The Python inside a virtual environment, and inside a conda environment.
+const venvPython = (dir, windows = WINDOWS) => (windows ? path.join(dir, "Scripts", "python.exe") : path.join(dir, "bin", "python"));
+const condaPython = (dir, windows = WINDOWS) => (windows ? path.join(dir, "python.exe") : path.join(dir, "bin", "python"));
 
 function exists(p) {
   try {
@@ -53,14 +56,18 @@ function subdirs(dir) {
 
 const PROBE = "import sys, os; print(sys.version.split()[0]); print(int(sys.prefix != getattr(sys, 'base_prefix', sys.prefix) or os.path.exists(os.path.join(sys.prefix, 'conda-meta'))))";
 
-function probe(python) {
+// { version, isEnv }, or null if it doesn't start. native: as a program here,
+// never in WSL (for Windows' own py, python and python3).
+function probe(python, { native = false } = {}) {
   return new Promise((resolve) => {
+    const done = (error, stdout) => {
+      if (error) return resolve(null);
+      const [version, isEnv] = String(stdout).trim().split(/\r?\n/);
+      resolve(version ? { version: version.trim(), isEnv: String(isEnv).trim() === "1" } : null);
+    };
     try {
-      execPython(python, ["-c", PROBE], { timeout: 4000 }, (error, stdout) => {
-        if (error) return resolve(null);
-        const [version, isEnv] = String(stdout).trim().split(/\r?\n/);
-        resolve(version ? { version: version.trim(), isEnv: String(isEnv).trim() === "1" } : null);
-      });
+      if (native) childProcess.execFile(python, ["-c", PROBE], { timeout: 4000, windowsHide: true }, done);
+      else execPython(python, ["-c", PROBE], { timeout: 4000 }, done);
     } catch {
       resolve(null);
     }
@@ -68,22 +75,33 @@ function probe(python) {
 }
 
 // Every Python we can find, nearest to the note first.
-async function findPythons(noteDir, vaultDir) {
-  if (isWindows()) return findWindowsPythons(noteDir, vaultDir);
+async function findPythons(noteDir, vaultDir, { windows = WINDOWS } = {}) {
   const home = os.homedir();
   const found = [];
   const add = (python, kind, name) => {
     if (exists(python)) found.push({ python, kind, name });
   };
-  // Virtual environments in the note's folder or above it, up to the vault.
+  // Virtual environments in the note's folder or above it, up to the vault. On
+  // Windows, one made by WSL's Python (bin/python, no Scripts\python.exe) runs in WSL.
+  const nearWsl = [];
   for (let dir = noteDir; dir && dir.startsWith(vaultDir); dir = path.dirname(dir)) {
-    for (const v of [".venv", "venv", "env", ".env"]) if (fs.existsSync(path.join(dir, v, "pyvenv.cfg"))) add(path.join(dir, v, "bin", "python"), "venv", `${path.basename(dir)}/${v}`);
+    for (const v of [".venv", "venv", "env", ".env"]) {
+      const env = path.join(dir, v);
+      if (!fs.existsSync(path.join(env, "pyvenv.cfg"))) continue;
+      const name = `${path.basename(dir)}/${v}`;
+      if (windows && hasWsl() && !fs.existsSync(venvPython(env, true)) && linkExists(path.join(env, "bin", "python"))) nearWsl.push({ python: `${toWslPath(env)}/bin/python`, kind: "venv", name, wsl: true });
+      else add(venvPython(env, windows), "venv", name);
+    }
     if (dir === vaultDir || dir === path.dirname(dir)) break;
   }
-  for (const root of [".virtualenvs", ".venvs", "venvs", "envs", ".local/share/virtualenvs"]) for (const d of subdirs(path.join(home, root))) add(path.join(d, "bin", "python"), "venv", path.basename(d));
+  for (const root of [".virtualenvs", ".venvs", "venvs", "envs", ".local/share/virtualenvs"]) for (const d of subdirs(path.join(home, root))) add(venvPython(d, windows), "venv", path.basename(d));
   // conda / mamba
   const condaRoots = ["miniconda3", "anaconda3", "miniforge3", "mambaforge", "micromamba", "opt/miniconda3", "opt/anaconda3"].map((r) => path.join(home, r));
-  condaRoots.push("/opt/homebrew/Caskroom/miniconda/base", "/opt/homebrew/Caskroom/miniforge/base", "/opt/miniconda3", "/opt/anaconda3", "/usr/local/Caskroom/miniconda/base");
+  if (windows) {
+    const local = ENV.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    const shared = ENV.ProgramData || "C:\\ProgramData";
+    for (const r of ["miniconda3", "anaconda3", "miniforge3"]) condaRoots.push(path.join(local, r), path.join(shared, r));
+  } else condaRoots.push("/opt/homebrew/Caskroom/miniconda/base", "/opt/homebrew/Caskroom/miniforge/base", "/opt/miniconda3", "/opt/anaconda3", "/usr/local/Caskroom/miniconda/base");
   let listed = [];
   try {
     listed = fs.readFileSync(path.join(home, ".conda", "environments.txt"), "utf8").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -91,19 +109,31 @@ async function findPythons(noteDir, vaultDir) {
     // no conda here
   }
   for (const root of condaRoots) {
-    add(path.join(root, "bin", "python"), "conda", `conda base (${path.basename(root)})`);
-    for (const d of subdirs(path.join(root, "envs"))) add(path.join(d, "bin", "python"), "conda", path.basename(d));
+    add(condaPython(root, windows), "conda", `conda base (${path.basename(root)})`);
+    for (const d of subdirs(path.join(root, "envs"))) add(condaPython(d, windows), "conda", path.basename(d));
   }
-  for (const d of listed) add(path.join(d, "bin", "python"), "conda", path.basename(d));
+  for (const d of listed) add(condaPython(d, windows), "conda", path.basename(d));
+  if (windows) {
+    // pyenv-win, then python.org's installs (for you, then for everyone).
+    for (const d of subdirs(path.join(home, ".pyenv", "pyenv-win", "versions"))) add(path.join(d, "python.exe"), "pyenv", `pyenv ${path.basename(d)}`);
+    const local = ENV.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    const programs = [path.join(local, "Programs", "Python"), ENV.ProgramFiles, ENV["ProgramFiles(x86)"]].filter(Boolean);
+    for (const root of programs) for (const d of subdirs(root).filter((d) => /^Python\d/i.test(path.basename(d))).sort((a, b) => b.localeCompare(a, "en", { numeric: true }))) add(path.join(d, "python.exe"), "system", `python.org ${path.basename(d)}`);
+    return withWsl(await unique(found), nearWsl);
+  }
   for (const d of subdirs(path.join(home, ".pyenv", "versions"))) add(path.join(d, "bin", "python"), "pyenv", `pyenv ${path.basename(d)}`);
   add("/opt/homebrew/bin/python3", "system", "Homebrew");
   add("/usr/local/bin/python3", "system", "/usr/local");
   for (const d of subdirs("/Library/Frameworks/Python.framework/Versions")) if (!/Current$/.test(d)) add(path.join(d, "bin", "python3"), "system", `python.org ${path.basename(d)}`);
   add("/usr/bin/python3", "system", Platform.isMacOS ? "macOS" : "System");
+  return unique(found);
+}
 
-  // Same interpreter twice (symlinks, environments.txt): keep the first.
+// Same interpreter twice (symlinks, environments.txt): keep the first. Then
+// keep the ones that start.
+async function unique(found) {
   const seen = new Set();
-  const unique = [];
+  const kept = [];
   for (const f of found) {
     let real = f.python;
     try {
@@ -114,63 +144,21 @@ async function findPythons(noteDir, vaultDir) {
     const key = f.kind === "venv" || f.kind === "conda" ? f.python : real;
     if (seen.has(key)) continue;
     seen.add(key);
-    unique.push(f);
+    kept.push(f);
   }
-  const probed = await Promise.all(unique.map(async (f) => Object.assign(f, await probe(f.python))));
+  const probed = await Promise.all(kept.map(async (f) => Object.assign(f, await probe(f.python))));
   return probed.filter((f) => f.version);
 }
 
-/* ---------- Windows, and WSL from Windows ---------- */
+/* ---------- WSL, from Windows ---------- */
 
-async function findWindowsPythons(noteDir, vaultDir) {
-  const home = os.homedir();
-  const local = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
-  const found = [];
-  const add = (python, kind, name) => {
-    if (fs.existsSync(python)) found.push({ python, kind, name });
-  };
-  // Virtual environments near the note: made by Windows' Python (Scripts\python.exe)
-  // or by WSL's (bin/python, which then runs in WSL).
-  const near = [];
-  for (let dir = noteDir; dir && dir.toLowerCase().startsWith(vaultDir.toLowerCase()); dir = path.dirname(dir)) {
-    for (const v of [".venv", "venv", "env", ".env"]) {
-      const env = path.join(dir, v);
-      if (!fs.existsSync(path.join(env, "pyvenv.cfg"))) continue;
-      const name = `${path.basename(dir)}/${v}`;
-      if (fs.existsSync(path.join(env, "Scripts", "python.exe"))) add(path.join(env, "Scripts", "python.exe"), "venv", name);
-      else if (hasWsl() && linkExists(path.join(env, "bin", "python"))) near.push({ python: `${toWslPath(env)}/bin/python`, kind: "venv", name, wsl: true });
-    }
-    if (dir.toLowerCase() === vaultDir.toLowerCase() || dir === path.dirname(dir)) break;
-  }
-  for (const root of [".virtualenvs", ".venvs", "venvs", "envs"]) for (const d of subdirs(path.join(home, root))) add(path.join(d, "Scripts", "python.exe"), "venv", path.basename(d));
-  // conda / mamba
-  const condaRoots = ["anaconda3", "miniconda3", "miniforge3", "mambaforge"].flatMap((r) => [path.join(home, r), path.join(local, r), path.join(process.env.ProgramData || "C:\\ProgramData", r)]);
-  for (const root of condaRoots) {
-    add(path.join(root, "python.exe"), "conda", `conda base (${path.basename(root)})`);
-    for (const d of subdirs(path.join(root, "envs"))) add(path.join(d, "python.exe"), "conda", path.basename(d));
-  }
-  try {
-    for (const d of fs.readFileSync(path.join(home, ".conda", "environments.txt"), "utf8").split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) add(path.join(d, "python.exe"), "conda", path.basename(d));
-  } catch {
-    // no conda here
-  }
-  for (const d of subdirs(path.join(home, ".pyenv", "pyenv-win", "versions"))) add(path.join(d, "python.exe"), "pyenv", `pyenv ${path.basename(d)}`);
-  // python.org's installer
-  for (const d of [...subdirs(path.join(local, "Programs", "Python")), ...subdirs(process.env.ProgramFiles || "C:\\Program Files")].filter((d) => /[\\/]Python\d+$/i.test(d))) add(path.join(d, "python.exe"), "system", `python.org ${path.basename(d).replace(/^Python(\d)(\d+)$/i, "$1.$2")}`);
-
-  const seen = new Set();
-  const windows = found.filter((f) => {
-    const key = f.python.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  const [probedWindows, inWsl, probedNear] = await Promise.all([
-    Promise.all(windows.map(async (f) => Object.assign(f, await probe(f.python)))),
-    hasWsl() ? findWslPythons() : [],
-    Promise.all(near.map(async (f) => Object.assign(f, await probe(f.python)))),
-  ]);
-  const all = [...probedNear, ...probedWindows.filter((f) => f.kind !== "system"), ...inWsl.filter((f) => f.kind !== "system"), ...probedWindows.filter((f) => f.kind === "system"), ...inWsl.filter((f) => f.kind === "system")];
+// On Windows: WSL's Pythons beside Windows' own, the venvs near the note
+// first and each system's Python last.
+async function withWsl(native, nearWsl) {
+  if (!hasWsl()) return native;
+  const [near, inWsl] = await Promise.all([Promise.all(nearWsl.map(async (f) => Object.assign(f, await probe(f.python)))), findWslPythons()]);
+  const system = (f) => f.kind === "system";
+  const all = [...near, ...native.filter((f) => !system(f)), ...inWsl.filter((f) => !system(f)), ...native.filter(system), ...inWsl.filter(system)];
   const once = new Set();
   return all.filter((f) => f.version && !once.has(f.python) && once.add(f.python));
 }
@@ -259,13 +247,15 @@ async function newVenvPaths(base, name) {
     return { dir, python: `${dir}/bin/python`, shown: `~/.virtualenvs/${name} in WSL` };
   }
   const dir = path.join(os.homedir(), ".virtualenvs", name);
-  return { dir, python: isWindows() ? path.join(dir, "Scripts", "python.exe") : path.join(dir, "bin", "python"), shown: tilde(dir) };
+  return { dir, python: venvPython(dir), shown: tilde(dir) };
 }
 
 // A path someone typed or pasted: a Python, or a virtual environment's folder.
 // Returns the Python in it, or null if there isn't one.
 function pythonAt(input) {
-  const p = expand(String(input || "").trim().replace(/^["']|["']$/g, ""));
+  const raw = String(input || "").trim().replace(/^["']|["']$/g, "");
+  // On Windows, ~/ is WSL's home (pylaunch.js) and ~\ is Windows'.
+  const p = isWindows() && raw.startsWith("~/") ? raw : expand(raw);
   if (!p) return null;
   const where = locate(p);
   if (where.wsl) {
@@ -322,4 +312,4 @@ function makeVenv(python, dir) {
   });
 }
 
-export { findPythons, findWslPythons, probe, pipInstall, makeVenv, newVenvPaths, pythonAt, missingModule, pipNameFor, expand, tilde, wslName };
+export { findPythons, findWslPythons, probe, pipInstall, makeVenv, newVenvPaths, pythonAt, missingModule, pipNameFor, expand, tilde, venvPython, wslName };

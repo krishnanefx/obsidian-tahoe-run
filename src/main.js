@@ -206,6 +206,7 @@ export default class TahoeRunPlugin extends Plugin {
       this.searchPath = this.basePath();
       this.resolveLoginPath();
       this.resolveSdkRoot();
+      this.pythonFound = this.findWindowsPython();
       this.explainer = new Explainer(this);
     }
 
@@ -435,8 +436,10 @@ export default class TahoeRunPlugin extends Plugin {
     if (!base) return null;
     if (!DESKTOP && base.id !== "python") return null; // only Python runs on a phone
     const override = this.settings.commands[base.id] || {};
+    // With "Run Python in WSL" on, a plain python3 is WSL's (pylaunch.js), so Windows' own isn't looked for.
+    const auto = base.id === "python" && !override.run && this.windowsPython && !(DESKTOP && this.machine.wsl) ? `${this.windowsPython} {file}` : null;
     return Object.assign({}, base, {
-      run: override.run || base.run,
+      run: override.run || auto || base.run,
       compile: base.compile !== undefined || override.compile ? override.compile || base.compile : undefined,
     });
   }
@@ -509,8 +512,20 @@ export default class TahoeRunPlugin extends Plugin {
   pythonCommand() {
     if (DESKTOP && this.machine.python.trim()) return this.machine.python.trim();
     const run = (this.resolve("python") || {}).run || "python3 {file}";
-    const first = run.trim().split(/\s+/)[0];
+    const m = run.trim().match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
+    const first = m ? m[1] || m[2] || m[3] : "";
     return first && !first.startsWith("{") ? first : "python3";
+  }
+
+  // On Windows, "python3" is usually the Microsoft Store's placeholder, which only
+  // says to install Python and exits with 9009. Unless the Python command was
+  // changed in settings, use the first of py, python and python3 that starts.
+  async findWindowsPython() {
+    if (!Platform.isWin) return null;
+    for (const candidate of ["py", "python", "python3"]) {
+      if (await envs.probe(candidate, { native: true })) return (this.windowsPython = candidate);
+    }
+    return null;
   }
 
   basePath() {
@@ -552,13 +567,13 @@ export default class TahoeRunPlugin extends Plugin {
       PYTHONUNBUFFERED: "1",
       PYTHONDONTWRITEBYTECODE: "1",
       MPLBACKEND: "Agg",
-      // Windows' Python writes to pipes in the ANSI code page otherwise, and fails on é or emoji.
-      ...(Platform.isWin ? { PYTHONIOENCODING: "utf-8" } : {}),
       NO_COLOR: "1",
       FORCE_COLOR: "0",
       TERM: "dumb",
       npm_config_yes: "true",
     });
+    // Windows' console code page would garble anything that isn't ASCII.
+    if (Platform.isWin) env.PYTHONIOENCODING = "utf-8";
     if (dir) {
       env.TAHOE_RUN_DIR = dir;
       env.PYTHONPATH = [dir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter);
@@ -815,10 +830,12 @@ export default class TahoeRunPlugin extends Plugin {
   /* ---------- running ---------- */
 
   async run(block) {
-    const def = this.resolve(block.lang);
+    let def = this.resolve(block.lang);
     if (!def) return;
     const output = this.outputFor(block.key);
     if (output.status === "running") return;
+    // On Windows, wait for the search for a working Python, then use what it found.
+    if (def.id === "python" && Platform.isWin && this.pythonFound) def = (await this.pythonFound, this.resolve(block.lang));
     if (def.id === "python" && (this.settings.kernel || this.usePyodide)) await this.runInKernel(block, def, output);
     else if (def.id === "matlab" && this.settings.matlabSession && this.matlabCommand(def)) await this.runInMatlab(block, def, output);
     else await this.runProcess(block, def, output);
@@ -858,8 +875,8 @@ export default class TahoeRunPlugin extends Plugin {
           // wsl.exe reads its own options (-e, -d) only unquoted.
           job.runCommand = [line.command, ...line.args].map((a) => (/^[\w./:=+-]+$/.test(a) ? a : shellQuote(a))).join(" ");
           job.env = line.env;
-        } else if (python !== (job.runCommand.trim().split(/\s+/)[0] || "")) {
-          job.runCommand = job.runCommand.replace(/^\s*(?:\S*[\\/])?python3?(?:\.exe)?(?=\s|$)/, shellQuote(python));
+        } else if (this.notePython(block.sourcePath) || this.machine.python.trim()) {
+          job.runCommand = job.runCommand.replace(/^\s*(?:"[^"]*[/\\](?:python3?|py)(?:\.exe)?"|(?:\S*[/\\])?(?:python3?|py)(?:\.exe)?)(?=\s|$)/i, shellQuote(python));
         }
       }
       output.scratch = job.dir + path.sep;
@@ -952,6 +969,7 @@ export default class TahoeRunPlugin extends Plugin {
         const word = name && new RegExp(`(^|[\\s:])${name}(:|\\s|$)`);
         const notFound =
           (code === 127 && !!word && stderrTail.split("\n").some((l) => /not found/i.test(l) && word.test(l))) ||
+          (Platform.isWin && code === 9009) ||
           // cmd.exe: "'x' is not recognized as an internal or external command"
           (isWindows && code !== 0 && /is not recognized as an internal or external command/i.test(stderrTail) && !!word && word.test(stderrTail.replace(/['"]/g, " ")));
         resolve({ code: code === null ? (signal ? 1 : 0) : code, signal, timedOut, notFound, command: command.split(" ")[0], stderr: stderrTail });
@@ -1046,7 +1064,12 @@ export default class TahoeRunPlugin extends Plugin {
     try {
       await kernel.ready;
     } catch (error) {
-      output.append("err", this.usePyodide ? `Couldn't start Python on this device: ${error.message}` : this.startFailure(this.pythonFor(block.sourcePath), error));
+      const python = this.pythonFor(block.sourcePath);
+      output.append("err", this.usePyodide ? `Couldn't start Python on this device: ${error.message}` : this.startFailure(python, error));
+      if (this.usePyodide) {
+        // nothing to choose on a phone
+      } else if (Platform.isWin && /code 9009\b/.test(error.message)) output.append("info", `\nWindows couldn't find ${python}: exit code 9009 means "not found", and "python3" is often the Microsoft Store's placeholder. Install Python from python.org, then restart Obsidian, or set the Python command in Settings → Tahoe Run → Languages.`);
+      else output.append("info", "\n\nChoose Python for this note… from the command palette, or set this computer's Python in Settings → Tahoe Run.");
       output.status = "error";
       output.duration = Date.now() - output.startedAt;
       output.kernelRef = null;
@@ -1081,7 +1104,7 @@ export default class TahoeRunPlugin extends Plugin {
     const message = String((error && error.message) || error);
     const wsl = pylaunch.isWslPython(python);
     const why = !/ENOENT/.test(message) ? message : wsl ? "WSL isn't installed (wsl.exe wasn't found). Install it with `wsl --install`, or choose a Windows Python." : `${python} wasn't found.`;
-    return `Couldn't start Python (${python}${wsl ? ", in WSL" : ""}): ${why}\n\nChoose Python for this note… from the command palette, or set this computer's Python in Settings → Tahoe Run.`;
+    return `Couldn't start Python (${python}${wsl ? ", in WSL" : ""}): ${why}`;
   }
 
   /* ---------- with Tahoe Code ---------- */
@@ -1564,7 +1587,8 @@ export default class TahoeRunPlugin extends Plugin {
       const python = this.pythonCommand();
       return envs.probe(python).then((r) => ({ ok: !!r, where: r ? `${pylaunch.isWslPython(python) ? "WSL · " : ""}${python} · Python ${r.version}` : "", command: python }));
     }
-    const command = (def.compile || def.run).trim().split(/\s+/)[0].replace(/^["']|["']$/g, "");
+    const m = (def.compile || def.run).trim().match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
+    const command = m ? m[1] || m[2] || m[3] : "";
     if (command.startsWith("{")) return Promise.resolve({ ok: true, where: "" });
     if (Platform.isWin) {
       return new Promise((resolve) => {

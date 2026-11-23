@@ -27,6 +27,7 @@ import warnings
 # reach the kernel, so with --protocol=stderr replies go on stderr instead, each
 # framed by U+001E like the end markers (JSON never contains a raw U+001E).
 KERNEL = __name__ == "__main__"
+# Commands and replies are UTF-8 (JSON from kernel.js), whatever the locale or Windows code page.
 STDERR_PROTOCOL = KERNEL and "--protocol=stderr" in sys.argv[1:]
 RS = "\x1e"
 if not KERNEL:
@@ -34,7 +35,7 @@ if not KERNEL:
 elif STDERR_PROTOCOL:
     PROTOCOL = os.fdopen(os.dup(2), "w", buffering=1, encoding="utf-8", errors="replace")
 else:
-    PROTOCOL = os.fdopen(3, "w", buffering=1)
+    PROTOCOL = os.fdopen(3, "w", buffering=1, encoding="utf-8")
 COMMANDS = os.fdopen(os.dup(0), "r", encoding="utf-8", errors="replace") if KERNEL else None
 
 
