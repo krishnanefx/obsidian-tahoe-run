@@ -145,6 +145,10 @@ Questions are welcome in [Discussions](https://github.com/krishnanefx/obsidian-t
 
 ## Credits
 
+Contributors:
+
+- [Stanley Hoo](https://github.com/Stanleyhoo1): Python in WSL on Windows, Python settings kept per computer, and kernels that say why they didn't start ([#1](https://github.com/krishnanefx/obsidian-tahoe-run/pull/1)).
+
 Third-party code included in Tahoe Run, with its licences, is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Tahoe Run is an independent project. It isn't affiliated with, or endorsed by, Apple, MathWorks, Jupyter or Anthropic.
