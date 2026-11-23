@@ -200,6 +200,7 @@ export default class TahoeRunPlugin extends Plugin {
       this.searchPath = this.basePath();
       this.resolveLoginPath();
       this.resolveSdkRoot();
+      this.pythonFound = this.findWindowsPython();
       this.explainer = new Explainer(this);
     }
 
@@ -415,8 +416,9 @@ export default class TahoeRunPlugin extends Plugin {
     if (!base) return null;
     if (!DESKTOP && base.id !== "python") return null; // only Python runs on a phone
     const override = this.settings.commands[base.id] || {};
+    const auto = base.id === "python" && !override.run && this.windowsPython ? `${this.windowsPython} {file}` : null;
     return Object.assign({}, base, {
-      run: override.run || base.run,
+      run: override.run || auto || base.run,
       compile: base.compile !== undefined || override.compile ? override.compile || base.compile : undefined,
     });
   }
@@ -443,8 +445,20 @@ export default class TahoeRunPlugin extends Plugin {
 
   pythonCommand() {
     const run = (this.resolve("python") || {}).run || "python3 {file}";
-    const first = run.trim().split(/\s+/)[0];
+    const m = run.trim().match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
+    const first = m ? m[1] || m[2] || m[3] : "";
     return first && !first.startsWith("{") ? first : "python3";
+  }
+
+  // On Windows, "python3" is usually the Microsoft Store's placeholder, which only
+  // says to install Python and exits with 9009. Unless the Python command was
+  // changed in settings, use the first of py, python and python3 that starts.
+  async findWindowsPython() {
+    if (!Platform.isWin) return null;
+    for (const candidate of ["py", "python", "python3"]) {
+      if (await envs.probe(candidate)) return (this.windowsPython = candidate);
+    }
+    return null;
   }
 
   basePath() {
@@ -491,6 +505,8 @@ export default class TahoeRunPlugin extends Plugin {
       TERM: "dumb",
       npm_config_yes: "true",
     });
+    // Windows' console code page would garble anything that isn't ASCII.
+    if (Platform.isWin) env.PYTHONIOENCODING = "utf-8";
     if (dir) {
       env.TAHOE_RUN_DIR = dir;
       env.PYTHONPATH = [dir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter);
@@ -747,10 +763,12 @@ export default class TahoeRunPlugin extends Plugin {
   /* ---------- running ---------- */
 
   async run(block) {
-    const def = this.resolve(block.lang);
+    let def = this.resolve(block.lang);
     if (!def) return;
     const output = this.outputFor(block.key);
     if (output.status === "running") return;
+    // On Windows, wait for the search for a working Python, then use what it found.
+    if (def.id === "python" && Platform.isWin && this.pythonFound) def = (await this.pythonFound, this.resolve(block.lang));
     if (def.id === "python" && (this.settings.kernel || this.usePyodide)) await this.runInKernel(block, def, output);
     else if (def.id === "matlab" && this.settings.matlabSession && this.matlabCommand(def)) await this.runInMatlab(block, def, output);
     else await this.runProcess(block, def, output);
@@ -783,7 +801,7 @@ export default class TahoeRunPlugin extends Plugin {
     try {
       job = await this.prepareJob(def, source, block.sourcePath);
       const own = def.id === "python" && this.notePython(block.sourcePath);
-      if (own) job.runCommand = job.runCommand.replace(/^\s*(?:\S*\/)?python3?(?=\s|$)/, shellQuote(own));
+      if (own) job.runCommand = job.runCommand.replace(/^\s*(?:"[^"]*[/\\](?:python3?|py)(?:\.exe)?"|(?:\S*[/\\])?(?:python3?|py)(?:\.exe)?)(?=\s|$)/i, shellQuote(own));
       output.scratch = job.dir + path.sep;
       output.scratchReal = job.realDir + path.sep;
 
@@ -871,7 +889,7 @@ export default class TahoeRunPlugin extends Plugin {
         const tool = (command.trim().match(/^(?:'([^']+)'|"([^"]+)"|(\S+))/) || []).slice(1).find(Boolean) || "";
         const name = tool.split("/").pop().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const word = name && new RegExp(`(^|[\\s:])${name}(:|\\s|$)`);
-        const notFound = code === 127 && !!word && stderrTail.split("\n").some((l) => /not found/i.test(l) && word.test(l));
+        const notFound = (code === 127 && !!word && stderrTail.split("\n").some((l) => /not found/i.test(l) && word.test(l))) || (Platform.isWin && code === 9009);
         resolve({ code: code === null ? (signal ? 1 : 0) : code, signal, timedOut, notFound, command: command.split(" ")[0], stderr: stderrTail });
       });
     });
@@ -965,6 +983,7 @@ export default class TahoeRunPlugin extends Plugin {
       await kernel.ready;
     } catch (error) {
       output.append("err", this.usePyodide ? `Couldn't start Python on this device: ${error.message}` : `Couldn't start Python (${this.pythonFor(block.sourcePath)}): ${error.message}`);
+      if (Platform.isWin && /code 9009\b/.test(error.message)) output.append("info", `\nWindows couldn't find ${this.pythonFor(block.sourcePath)}: exit code 9009 means "not found", and "python3" is often the Microsoft Store's placeholder. Install Python from python.org, then restart Obsidian, or set the Python command in Settings → Tahoe Run → Languages.`);
       output.status = "error";
       output.duration = Date.now() - output.startedAt;
       output.kernelRef = null;
@@ -1232,8 +1251,9 @@ export default class TahoeRunPlugin extends Plugin {
         const r = await envs.makeVenv(base, dir);
         n.hide();
         if (!r.ok) return new Notice(`Couldn't create it: ${r.message}`);
-        const probed = await envs.probe(path.join(dir, "bin", "python"));
-        await this.setNotePython(file, { kind: "venv", name, python: path.join(dir, "bin", "python"), version: probed ? probed.version : "" });
+        const python = envs.venvPython(dir, Platform.isWin);
+        const probed = await envs.probe(python);
+        await this.setNotePython(file, { kind: "venv", name, python, version: probed ? probed.version : "" });
       }).open();
       return;
     }
@@ -1459,8 +1479,17 @@ export default class TahoeRunPlugin extends Plugin {
   /* ---------- tool detection (settings) ---------- */
 
   detect(def) {
-    const command = (def.compile || def.run).trim().split(/\s+/)[0];
+    const m = (def.compile || def.run).trim().match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
+    const command = m ? m[1] || m[2] || m[3] : "";
     if (command.startsWith("{")) return Promise.resolve({ ok: true, where: "" });
+    if (Platform.isWin) {
+      return new Promise((resolve) => {
+        childProcess.execFile("where", [command], { env: Object.assign({}, process.env, { PATH: this.searchPath }), timeout: 4000 }, (error, stdout) => {
+          const where = String(stdout || "").split(/\r?\n/)[0].trim();
+          resolve({ ok: !error && !!where, where, command });
+        });
+      });
+    }
     return new Promise((resolve) => {
       childProcess.execFile("/bin/sh", ["-c", `command -v ${shellQuote(command)}`], { env: Object.assign({}, process.env, { PATH: this.searchPath }), timeout: 4000 }, (error, stdout) => {
         resolve({ ok: !error && !!stdout.trim(), where: stdout.trim(), command });

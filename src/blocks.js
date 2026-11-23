@@ -65,12 +65,16 @@ function findCodeBlocks(lines) {
   return blocks;
 }
 
-function shellQuote(s) {
+// Commands run in zsh/sh, or in cmd.exe on Windows, which has no single quotes.
+const WINDOWS = typeof process !== "undefined" && process.platform === "win32";
+
+function shellQuote(s, windows = WINDOWS) {
+  if (windows) return `"${String(s).replace(/"/g, '""')}"`;
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 
-function fill(template, vars) {
-  return template.replace(/\{(file|out|dir)\}/g, (_, k) => shellQuote(vars[k]));
+function fill(template, vars, windows = WINDOWS) {
+  return template.replace(/\{(file|out|dir)\}/g, (_, k) => shellQuote(vars[k], windows));
 }
 
 function formatDuration(ms) {

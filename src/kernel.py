@@ -24,8 +24,9 @@ import warnings
 # Imported inside Pyodide (Python on iPhone), there are no pipes: the plugin
 # calls run_cell() and the helpers directly.
 KERNEL = __name__ == "__main__"
-PROTOCOL = os.fdopen(3, "w", buffering=1) if KERNEL else None
-COMMANDS = os.fdopen(os.dup(0), "r") if KERNEL else None
+# Both are UTF-8 (JSON from kernel.js), whatever the locale or Windows code page.
+PROTOCOL = os.fdopen(3, "w", buffering=1, encoding="utf-8") if KERNEL else None
+COMMANDS = os.fdopen(os.dup(0), "r", encoding="utf-8") if KERNEL else None
 
 
 def _no_input(prompt=""):

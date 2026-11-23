@@ -51,6 +51,6 @@ Languages with tests: C, C++, Objective-C, Swift, Java, JavaScript, Python, Ruby
 - **Obsidian itself:** the Run capsules, cards and decorations in Live Preview and reading view, the settings tab, modals as drawn, and hotkeys. The monorepo's `tests/obsidian` scenarios cover some of this in a hidden test copy of Obsidian.
 - **MATLAB:** sessions are tested against a stand-in process that speaks MATLAB's side of the protocol. No real MATLAB is started, so the `.m` helpers themselves (`tahoe_figures`, `tahoe_variables`…) aren't run. Octave runs if it's installed.
 - **Pyodide end to end:** WebAssembly Python isn't loaded. The file store, checksums, serving its requests, the session's queue and the Python bridge are tested separately.
-- **Windows and Linux:** the tests are written for macOS (and POSIX shells). Some would pass on Linux, but they haven't been run there.
+- **Windows and Linux:** the tests are written for macOS (and POSIX shells). Some would pass on Linux, but they haven't been run there. The Windows-only paths (choosing py, python or python3, environments in `Scripts\python.exe`, quoting for cmd.exe, the 9009 message) are tested on a Mac with stand-ins, not on Windows.
 - **Network:** the Claude API, a real Ollama, CDN downloads and pip are replaced by stand-ins. Building the Apple Intelligence helper isn't tested.
 - **Typed input for other languages:** the field that writes to a running program's stdin isn't tested yet. The Python kernel's input is.

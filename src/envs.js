@@ -2,14 +2,23 @@
  * Python environments. A note can pick its own Python — a virtual
  * environment, a conda env, pyenv, Homebrew — with a `python:` property;
  * otherwise it uses the default from settings. This finds the ones on this
- * Mac and installs missing packages into the note's Python.
+ * computer and installs missing packages into the note's Python. On Windows,
+ * environments keep Python in Scripts\python.exe (conda: python.exe at the
+ * top), not bin/python.
  */
 
 import { missingModule, pipNameFor } from "./pipnames";
 import { fs, path, os, childProcess } from "./node";
 
-const expand = (p) => String(p || "").replace(/^~(?=\/|$)/, os.homedir());
-const tilde = (p) => (p.startsWith(os.homedir() + "/") ? `~${p.slice(os.homedir().length)}` : p);
+const WINDOWS = typeof process !== "undefined" && process.platform === "win32";
+const ENV = typeof process !== "undefined" ? process.env : {};
+
+const expand = (p) => String(p || "").replace(/^~(?=[/\\]|$)/, os.homedir());
+const tilde = (p) => (p.startsWith(os.homedir() + "/") || p.startsWith(os.homedir() + "\\") ? `~${p.slice(os.homedir().length)}` : p);
+
+// The Python inside a virtual environment, and inside a conda environment.
+const venvPython = (dir, windows = WINDOWS) => (windows ? path.join(dir, "Scripts", "python.exe") : path.join(dir, "bin", "python"));
+const condaPython = (dir, windows = WINDOWS) => (windows ? path.join(dir, "python.exe") : path.join(dir, "bin", "python"));
 
 function exists(p) {
   try {
@@ -47,7 +56,7 @@ function probe(python) {
 }
 
 // Every Python we can find, nearest to the note first.
-async function findPythons(noteDir, vaultDir) {
+async function findPythons(noteDir, vaultDir, { windows = WINDOWS } = {}) {
   const home = os.homedir();
   const found = [];
   const add = (python, kind, name) => {
@@ -55,13 +64,17 @@ async function findPythons(noteDir, vaultDir) {
   };
   // Virtual environments in the note's folder or above it, up to the vault.
   for (let dir = noteDir; dir && dir.startsWith(vaultDir); dir = path.dirname(dir)) {
-    for (const v of [".venv", "venv", "env", ".env"]) if (fs.existsSync(path.join(dir, v, "pyvenv.cfg"))) add(path.join(dir, v, "bin", "python"), "venv", `${path.basename(dir)}/${v}`);
+    for (const v of [".venv", "venv", "env", ".env"]) if (fs.existsSync(path.join(dir, v, "pyvenv.cfg"))) add(venvPython(path.join(dir, v), windows), "venv", `${path.basename(dir)}/${v}`);
     if (dir === vaultDir || dir === path.dirname(dir)) break;
   }
-  for (const root of [".virtualenvs", ".venvs", "venvs", ".local/share/virtualenvs"]) for (const d of subdirs(path.join(home, root))) add(path.join(d, "bin", "python"), "venv", path.basename(d));
+  for (const root of [".virtualenvs", ".venvs", "venvs", ".local/share/virtualenvs"]) for (const d of subdirs(path.join(home, root))) add(venvPython(d, windows), "venv", path.basename(d));
   // conda / mamba
   const condaRoots = ["miniconda3", "anaconda3", "miniforge3", "mambaforge", "micromamba", "opt/miniconda3", "opt/anaconda3"].map((r) => path.join(home, r));
-  condaRoots.push("/opt/homebrew/Caskroom/miniconda/base", "/opt/homebrew/Caskroom/miniforge/base", "/opt/miniconda3", "/opt/anaconda3", "/usr/local/Caskroom/miniconda/base");
+  if (windows) {
+    const local = ENV.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    const shared = ENV.ProgramData || "C:\\ProgramData";
+    for (const r of ["miniconda3", "anaconda3", "miniforge3"]) condaRoots.push(path.join(local, r), path.join(shared, r));
+  } else condaRoots.push("/opt/homebrew/Caskroom/miniconda/base", "/opt/homebrew/Caskroom/miniforge/base", "/opt/miniconda3", "/opt/anaconda3", "/usr/local/Caskroom/miniconda/base");
   let listed = [];
   try {
     listed = fs.readFileSync(path.join(home, ".conda", "environments.txt"), "utf8").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -69,19 +82,31 @@ async function findPythons(noteDir, vaultDir) {
     // no conda here
   }
   for (const root of condaRoots) {
-    add(path.join(root, "bin", "python"), "conda", `conda base (${path.basename(root)})`);
-    for (const d of subdirs(path.join(root, "envs"))) add(path.join(d, "bin", "python"), "conda", path.basename(d));
+    add(condaPython(root, windows), "conda", `conda base (${path.basename(root)})`);
+    for (const d of subdirs(path.join(root, "envs"))) add(condaPython(d, windows), "conda", path.basename(d));
   }
-  for (const d of listed) add(path.join(d, "bin", "python"), "conda", path.basename(d));
+  for (const d of listed) add(condaPython(d, windows), "conda", path.basename(d));
+  if (windows) {
+    // pyenv-win, then python.org's installs (for you, then for everyone).
+    for (const d of subdirs(path.join(home, ".pyenv", "pyenv-win", "versions"))) add(path.join(d, "python.exe"), "pyenv", `pyenv ${path.basename(d)}`);
+    const local = ENV.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    const programs = [path.join(local, "Programs", "Python"), ENV.ProgramFiles, ENV["ProgramFiles(x86)"]].filter(Boolean);
+    for (const root of programs) for (const d of subdirs(root).filter((d) => /^Python\d/i.test(path.basename(d))).sort((a, b) => b.localeCompare(a, "en", { numeric: true }))) add(path.join(d, "python.exe"), "system", `python.org ${path.basename(d)}`);
+    return unique(found);
+  }
   for (const d of subdirs(path.join(home, ".pyenv", "versions"))) add(path.join(d, "bin", "python"), "pyenv", `pyenv ${path.basename(d)}`);
   add("/opt/homebrew/bin/python3", "system", "Homebrew");
   add("/usr/local/bin/python3", "system", "/usr/local");
   for (const d of subdirs("/Library/Frameworks/Python.framework/Versions")) if (!/Current$/.test(d)) add(path.join(d, "bin", "python3"), "system", `python.org ${path.basename(d)}`);
   add("/usr/bin/python3", "system", "macOS");
+  return unique(found);
+}
 
-  // Same interpreter twice (symlinks, environments.txt): keep the first.
+// Same interpreter twice (symlinks, environments.txt): keep the first. Then
+// keep the ones that start.
+async function unique(found) {
   const seen = new Set();
-  const unique = [];
+  const kept = [];
   for (const f of found) {
     let real = f.python;
     try {
@@ -92,9 +117,9 @@ async function findPythons(noteDir, vaultDir) {
     const key = f.kind === "venv" || f.kind === "conda" ? f.python : real;
     if (seen.has(key)) continue;
     seen.add(key);
-    unique.push(f);
+    kept.push(f);
   }
-  const probed = await Promise.all(unique.map(async (f) => Object.assign(f, await probe(f.python))));
+  const probed = await Promise.all(kept.map(async (f) => Object.assign(f, await probe(f.python))));
   return probed.filter((f) => f.version);
 }
 
@@ -122,4 +147,4 @@ function makeVenv(python, dir) {
   });
 }
 
-export { findPythons, probe, pipInstall, makeVenv, missingModule, pipNameFor, expand, tilde };
+export { findPythons, probe, pipInstall, makeVenv, missingModule, pipNameFor, expand, tilde, venvPython };
