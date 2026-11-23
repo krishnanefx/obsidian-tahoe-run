@@ -65,6 +65,16 @@ function findCodeBlocks(lines) {
   return blocks;
 }
 
+// The blocks that come before a line: those that end above it. A block the line is
+// inside doesn't count; blocks[i] is at ordinal i.
+function blocksBefore(blocks, line) {
+  const above = [];
+  blocks.forEach((b, i) => {
+    if (b.end < line) above.push(i);
+  });
+  return above;
+}
+
 // Commands run in zsh/sh, or in cmd.exe on Windows, which has no single quotes.
 const WINDOWS = typeof process !== "undefined" && process.platform === "win32";
 
@@ -106,4 +116,4 @@ function outputText(line) {
   return line.slice(6).split("<" + NOT_A_TAG).join("<");
 }
 
-export { LANGUAGES, findCodeBlocks, shellQuote, fill, formatDuration, hash, FENCE_OPEN, outputLine, outputText };
+export { LANGUAGES, findCodeBlocks, blocksBefore, shellQuote, fill, formatDuration, hash, FENCE_OPEN, outputLine, outputText };

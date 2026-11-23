@@ -1,7 +1,7 @@
 {
   "id": "tahoe-run",
   "name": "Tahoe Run",
-  "version": "1.7.6",
+  "version": "1.8.0",
   "minAppVersion": "1.13.0",
   "description": "Run code in your notes like a Jupyter notebook: Python with a debugger and variables view, plus MATLAB, R, Julia, JavaScript, C/C++, Swift, Rust, Go and more. Plots, Jupyter export, and Python on iPhone and iPad (beta).",
   "author": "Krishnan Adaikkappan",

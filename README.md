@@ -4,6 +4,8 @@
 
 **Run the code in your notes, like a notebook.** Python gets a live kernel with a real debugger and a variables view, MATLAB runs in a session of your own MATLAB, and C, C++, Swift, JavaScript and twenty-odd other languages run with the tools you have installed. The output, plots included, appears right under the block. Python also runs on iPhone and iPad (beta).
 
+**Install:** in Obsidian, open Settings → Community plugins → Browse, search for “Tahoe Run”, then Install and Enable. ([Directory page](https://community.obsidian.md/plugins/tahoe-run))
+
 | Platform | Status | Tested on | Known limits |
 |---|---|---|---|
 | macOS | Supported | macOS 27, Obsidian 1.13 or later | None known |

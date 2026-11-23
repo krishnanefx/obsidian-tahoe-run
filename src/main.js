@@ -12,7 +12,7 @@
 import { Plugin, PluginSettingTab, Setting, Notice, Modal, Menu, MarkdownRenderChild, SuggestModal, Platform, setIcon, editorInfoField } from "obsidian";
 import { StateField, StateEffect, RangeSetBuilder, Prec } from "@codemirror/state";
 import { EditorView, Decoration, WidgetType, keymap } from "@codemirror/view";
-import { LANGUAGES, findCodeBlocks, shellQuote, fill, hash } from "./blocks";
+import { LANGUAGES, findCodeBlocks, blocksBefore, shellQuote, fill, hash } from "./blocks";
 import { RunOutput, createCard, EXPLANATION_MARK } from "./output";
 import { PythonKernel } from "./kernel";
 import { MatlabSession, FIGURES_M, tidyMatlabErr, tidyMatlabOut } from "./matlab";
@@ -390,6 +390,18 @@ export default class TahoeRunPlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         if (!file) return false;
         if (!checking) this.clearFile(file.path);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "run-blocks-above",
+      name: "Run code blocks above the cursor",
+      editorCheckCallback: (checking, editor, view) => {
+        if (!view.file) return false;
+        const blocks = findCodeBlocks(editor.getValue().split("\n"));
+        const above = blocksBefore(blocks, editor.getCursor().line);
+        if (!above.some((i) => this.runnable(blocks[i]))) return false;
+        if (!checking) this.runBlocks(view.file, blocks, above, "Run above");
         return true;
       },
     });
@@ -815,13 +827,21 @@ export default class TahoeRunPlugin extends Plugin {
   // is a Quarto-style "#| eval: false" (or %|, //| or --|, in the block's language).
   async runAll(file) {
     const blocks = findCodeBlocks((await this.app.vault.cachedRead(file)).split("\n"));
-    for (let i = 0; i < blocks.length; i++) {
-      if (!this.resolve(blocks[i].lang) || SKIP_CELL.test(blocks[i].code.split("\n")[0] || "")) continue;
+    await this.runBlocks(file, blocks, blocks.map((_, i) => i), "Run all");
+  }
+
+  runnable(block) {
+    return !!this.resolve(block.lang) && !SKIP_CELL.test(block.code.split("\n")[0] || "");
+  }
+
+  async runBlocks(file, blocks, ordinals, what) {
+    for (const i of ordinals) {
+      if (!this.runnable(blocks[i])) continue;
       const key = `${file.path}::${i}`;
       await this.run({ key, lang: blocks[i].lang, ordinal: i, code: blocks[i].code, sourcePath: file.path });
       const output = this.outputs.get(key);
       if (output && output.failed()) {
-        new Notice(`Run all stopped at block ${i + 1} (line ${blocks[i].start + 1}), which failed.`);
+        new Notice(`${what} stopped at block ${i + 1} (line ${blocks[i].start + 1}), which failed.`);
         return;
       }
     }

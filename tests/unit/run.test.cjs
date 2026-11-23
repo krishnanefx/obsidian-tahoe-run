@@ -2726,4 +2726,31 @@ test("plugin: no install when you say no, or for a module that isn't on PyPI", a
   eq([fs.existsSync(ros.log), lastNotice()], [false, "rclpy isn't on PyPI (it comes with ROS), so it can't be installed with pip."]);
 });
 
+/* ---------- 1.8: more commands, output limit, folding ---------- */
+
+const command = (p, id) => p.commands.find((c) => c.id === id);
+
+test("blocks: blocksBefore lists the blocks that end above a line, not the one it's in", () => {
+  const b = findCodeBlocks("```python\na\n```\ntext\n```js\nb\n```\n```py\nc\n```".split("\n"));
+  eq(blocks.blocksBefore(b, 0), []);
+  eq(blocks.blocksBefore(b, 1), [], "inside the first block");
+  eq(blocks.blocksBefore(b, 3), [0], "between blocks");
+  eq(blocks.blocksBefore(b, 5), [0], "inside the second");
+  eq(blocks.blocksBefore(b, 8), [0, 1], "inside the third");
+});
+
+test("plugin: Run blocks above the cursor runs those that can run, in order, and not the one it's in", async () => {
+  const p = await makePlugin();
+  const ran = [];
+  p.run = async (b) => ran.push(b.key);
+  const t = "```python\na = 1\n```\n```mermaid\ng\n```\n```python\n#| eval: false\nb\n```\n```py\nc = 3\n```\n```py\nd = 4\n```";
+  const view = { file: new obsidian.TFile("N.md") };
+  const cmd = command(p, "run-blocks-above");
+  eq(cmd.editorCheckCallback(true, new FakeEditor(t, { line: 1, ch: 0 }), view), false, "nothing above the first block");
+  eq(cmd.editorCheckCallback(true, new FakeEditor(t, { line: 13, ch: 0 }), view), true);
+  cmd.editorCheckCallback(false, new FakeEditor(t, { line: 14, ch: 0 }), view);
+  await sleep(20);
+  eq(ran, ["N.md::0", "N.md::3"], "skips the diagram and the eval: false block, stops before the block the cursor is in");
+});
+
 h.run({ title: "Tahoe Run unit tests" });
