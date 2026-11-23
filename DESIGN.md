@@ -24,7 +24,13 @@ On desktop, Node's modules (`fs`, `child_process` and so on) are loaded with `im
 
 ## Python on desktop: a local process
 
-On desktop, a note's kernel is `python -u tahoe_kernel.py`, using the user's own Python. That's the note's `python:` property if it's set and points to an executable, otherwise the Python command from settings. The environment picker (`src/envs.js`) finds virtual environments, conda, pyenv, Homebrew and python.org installs, and writes the choice into `python:`.
+On desktop, a note's kernel is `python -u tahoe_kernel.py`, using the user's own Python. That's the Python chosen for the note on this computer, else the note's `python:` property if it points to a Python this computer has, else this computer's default Python, else the Python command in Languages. The environment picker (`src/envs.js`) finds virtual environments, conda, pyenv, Homebrew and python.org installs.
+
+**Per computer.** A vault synced through iCloud or Git shares its plugin settings, but where Python is belongs to each computer. So `settings.machines` is keyed by the computer's name (`os.hostname()`), each with `{ python, wsl, distro, notes }`: the default Python, whether plain commands run in WSL, the WSL distribution, and the picker's choice for each note path. Renaming a note moves its entries; deleting it removes this computer's.
+
+**Windows and WSL** (`src/pylaunch.js`). Every Python is started through `spawnPython`/`execPython`, which decide where it runs. A Linux path (`/…`, `~/…`), a `\\wsl.localhost\<distro>\…` path, `wsl:<command>`, or a plain command with *Run Python in WSL* on, is started as `wsl.exe [-d distro] -e <python> …`. Windows paths among the arguments are translated (`C:\x` → `/mnt/c/x`), and `WSLENV` passes on the variables the kernel needs (`MPLBACKEND`, `PYTHONIOENCODING` and so on, with `TAHOE_RUN_DIR/p` and `PYTHONPATH/l` translated as paths). The working folder is translated by WSL itself. Only fds 0–2 cross wsl.exe, so a WSL kernel runs with `--protocol=stderr`: its replies go on stderr as `U+001E TAHOE-MSG:<json> U+001E`, beside the end markers, and `kernel.js` takes them out of the stream. Interrupt runs `wsl.exe -e kill -INT <pid>` with the Linux pid the kernel reports when ready, since a Windows signal can't reach it. Windows' own Python keeps fd 3 (Node passes it through the C runtime's handle inheritance) but can't be sent Ctrl-C, so there Stop restarts the kernel. On Windows the plugin also sets `PYTHONIOENCODING=utf-8`, quotes commands for `cmd.exe`, and finds tools with `where.exe`.
+
+**Start-up errors.** What a kernel prints before it's ready (a traceback, WSL's "execvpe(…) failed") is kept and added to the error the run shows, instead of a bare exit code.
 
 Using a real local Python means anything in your own environments works, including packages with C extensions and your virtual environments, and a running block can be interrupted.
 

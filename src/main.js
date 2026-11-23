@@ -30,6 +30,7 @@ import FIGURES_HOOK from "./figures.py";
 import STDCPP_SHIM from "./stdcpp.h";
 import { fs, path, os, childProcess, loadNode } from "./node";
 import { InlineValues } from "./inline";
+import * as pylaunch from "./pylaunch";
 
 // "#| eval: false" (Quarto and Jupyter cell options) on a block's first line: Run all skips it.
 const SKIP_CELL = /^\s*(?:#|%|\/\/|--)\|\s*eval:\s*false\b/i;
@@ -79,6 +80,9 @@ const DEFAULT_SETTINGS = {
   claudeModel: DEFAULT_CLAUDE_MODEL,
   claudeSecretId: "anthropic-api-key",
   commands: {}, // id -> { run, compile }
+  // Per computer (by its name), since a synced vault is opened on more than one:
+  // { python, wsl, distro, notes: { notePath: python } }. See machine below.
+  machines: {},
 };
 
 /* ------------------------------------------------------------------------ */
@@ -187,6 +191,8 @@ export default class TahoeRunPlugin extends Plugin {
     await loadNode(); // Node's modules, on the desktop app (see node.js)
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.settings.commands = Object.assign({}, this.settings.commands);
+    this.settings.machines = Object.assign({}, this.settings.machines);
+    if (DESKTOP) pylaunch.configure(this.machine);
     this.outputs = new Map();
     this.kernels = new Map(); // note path -> PythonKernel
     this.inline = new InlineValues(this);
@@ -242,12 +248,26 @@ export default class TahoeRunPlugin extends Plugin {
             this.outputs.set(out.key, out);
           }
         }
+        // The Python chosen for a note on each computer goes with it.
+        let moved = false;
+        for (const m of Object.values(this.settings.machines)) {
+          if (m && m.notes && Object.prototype.hasOwnProperty.call(m.notes, oldPath)) {
+            m.notes[file.path] = m.notes[oldPath];
+            delete m.notes[oldPath];
+            moved = true;
+          }
+        }
+        if (moved) this.saveData(this.settings);
       })
     );
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
         this.shutdownKernel(file.path);
         this.shutdownKernel(file.path, "matlab");
+        if (DESKTOP && Object.prototype.hasOwnProperty.call(this.machine.notes, file.path)) {
+          delete this.machine.notes[file.path];
+          this.saveData(this.settings);
+        }
       })
     );
     this.registerInterval(window.setInterval(() => this.reapIdleKernels(), 60000));
@@ -416,21 +436,66 @@ export default class TahoeRunPlugin extends Plugin {
     if (!base) return null;
     if (!DESKTOP && base.id !== "python") return null; // only Python runs on a phone
     const override = this.settings.commands[base.id] || {};
-    const auto = base.id === "python" && !override.run && this.windowsPython ? `${this.windowsPython} {file}` : null;
+    // With "Run Python in WSL" on, a plain python3 is WSL's (pylaunch.js), so Windows' own isn't looked for.
+    const auto = base.id === "python" && !override.run && this.windowsPython && !(DESKTOP && this.machine.wsl) ? `${this.windowsPython} {file}` : null;
     return Object.assign({}, base, {
       run: override.run || auto || base.run,
       compile: base.compile !== undefined || override.compile ? override.compile || base.compile : undefined,
     });
   }
 
-  // The note's own Python (its `python:` property), if it has one that exists.
+  // This computer's settings. A vault synced between computers (iCloud, Git)
+  // shares its plugin settings, but where Python is, and whether it runs in
+  // WSL, belong to each computer, so they're kept under its name.
+  get machineId() {
+    return (DESKTOP && os.hostname()) || "this-device";
+  }
+
+  get machine() {
+    const id = this.machineId;
+    let m = this.settings.machines[id];
+    if (!m || typeof m !== "object") m = this.settings.machines[id] = {};
+    if (typeof m.python !== "string") m.python = "";
+    if (typeof m.distro !== "string") m.distro = "";
+    m.wsl = !!m.wsl;
+    if (!m.notes || typeof m.notes !== "object") m.notes = {};
+    return m;
+  }
+
+  async saveMachine(changes) {
+    Object.assign(this.machine, changes);
+    pylaunch.configure(this.machine);
+    await this.saveData(this.settings);
+    // Running kernels and the completer keep the Python they started with.
+    for (const [notePath, kernel] of [...this.kernels]) {
+      if (kernel.state === "dead" || this.usePyodide) continue;
+      kernel.shutdown();
+      this.kernels.delete(notePath);
+    }
+    if (this.staticPython) this.staticPython.stop();
+    this.updateStatus();
+  }
+
+  // The note's own Python on this computer: the one chosen for it here, else its
+  // `python:` property if that's a Python this computer has.
   notePython(sourcePath) {
-    if (!DESKTOP) return null;
-    const file = sourcePath && this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!DESKTOP || !sourcePath) return null;
+    const chosen = this.machine.notes;
+    if (Object.prototype.hasOwnProperty.call(chosen, sourcePath)) return chosen[sourcePath] || null;
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
     const fm = file && this.app.metadataCache.getFileCache(file);
     const want = fm && fm.frontmatter && fm.frontmatter.python;
     if (!want || typeof want !== "string") return null;
     const p = envs.expand(want.trim());
+    if (pylaunch.isWslPython(p)) {
+      // Only one on a Windows drive can be looked at from here (/mnt/c/…).
+      const win = pylaunch.fromWslPath(pylaunch.locate(p).python, "");
+      try {
+        return win && fs.lstatSync(win) ? p : null;
+      } catch {
+        return null;
+      }
+    }
     try {
       fs.accessSync(p, fs.constants.X_OK);
       return p;
@@ -443,7 +508,9 @@ export default class TahoeRunPlugin extends Plugin {
     return this.notePython(sourcePath) || this.pythonCommand();
   }
 
+  // This computer's default Python, else the command in Languages → Python.
   pythonCommand() {
+    if (DESKTOP && this.machine.python.trim()) return this.machine.python.trim();
     const run = (this.resolve("python") || {}).run || "python3 {file}";
     const m = run.trim().match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
     const first = m ? m[1] || m[2] || m[3] : "";
@@ -456,7 +523,7 @@ export default class TahoeRunPlugin extends Plugin {
   async findWindowsPython() {
     if (!Platform.isWin) return null;
     for (const candidate of ["py", "python", "python3"]) {
-      if (await envs.probe(candidate)) return (this.windowsPython = candidate);
+      if (await envs.probe(candidate, { native: true })) return (this.windowsPython = candidate);
     }
     return null;
   }
@@ -800,8 +867,18 @@ export default class TahoeRunPlugin extends Plugin {
     let job = null;
     try {
       job = await this.prepareJob(def, source, block.sourcePath);
-      const own = def.id === "python" && this.notePython(block.sourcePath);
-      if (own) job.runCommand = job.runCommand.replace(/^\s*(?:"[^"]*[/\\](?:python3?|py)(?:\.exe)?"|(?:\S*[/\\])?(?:python3?|py)(?:\.exe)?)(?=\s|$)/i, shellQuote(own));
+      if (def.id === "python") {
+        const python = this.pythonFor(block.sourcePath);
+        const line = pylaunch.pythonCommandLine(python, [{ path: job.file }], job.env);
+        if (line.wsl) {
+          // In WSL: its own paths, and the variables it needs passed on (pylaunch.js).
+          // wsl.exe reads its own options (-e, -d) only unquoted.
+          job.runCommand = [line.command, ...line.args].map((a) => (/^[\w./:=+-]+$/.test(a) ? a : shellQuote(a))).join(" ");
+          job.env = line.env;
+        } else if (this.notePython(block.sourcePath) || this.machine.python.trim()) {
+          job.runCommand = job.runCommand.replace(/^\s*(?:"[^"]*[/\\](?:python3?|py)(?:\.exe)?"|(?:\S*[/\\])?(?:python3?|py)(?:\.exe)?)(?=\s|$)/i, shellQuote(python));
+        }
+      }
       output.scratch = job.dir + path.sep;
       output.scratchReal = job.realDir + path.sep;
 
@@ -848,11 +925,12 @@ export default class TahoeRunPlugin extends Plugin {
     return new Promise((resolve) => {
       const isWindows = Platform.isWin;
       const shell = isWindows ? process.env.ComSpec || "cmd.exe" : fs.existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/sh";
-      const args = isWindows ? ["/d", "/s", "/c", command] : ["-c", command];
+      // cmd.exe takes the command line as it is (/s strips the outer quotes), as Node's own shell: true does.
+      const args = isWindows ? ["/d", "/s", "/c", `"${command}"`] : ["-c", command];
       let child;
       try {
         // The run step gets a stdin the card's input field writes to; other steps get none.
-        child = childProcess.spawn(shell, args, { cwd, env, detached: !isWindows, stdio: [opts.stdin && output ? "pipe" : "ignore", output ? "pipe" : "ignore", "pipe"] });
+        child = childProcess.spawn(shell, args, { cwd, env, detached: !isWindows, windowsHide: true, windowsVerbatimArguments: isWindows, stdio: [opts.stdin && output ? "pipe" : "ignore", output ? "pipe" : "ignore", "pipe"] });
       } catch (error) {
         if (output) output.append("err", String(error.message || error));
         resolve({ code: -1, stderr: String(error.message || error) });
@@ -889,7 +967,11 @@ export default class TahoeRunPlugin extends Plugin {
         const tool = (command.trim().match(/^(?:'([^']+)'|"([^"]+)"|(\S+))/) || []).slice(1).find(Boolean) || "";
         const name = tool.split("/").pop().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const word = name && new RegExp(`(^|[\\s:])${name}(:|\\s|$)`);
-        const notFound = (code === 127 && !!word && stderrTail.split("\n").some((l) => /not found/i.test(l) && word.test(l))) || (Platform.isWin && code === 9009);
+        const notFound =
+          (code === 127 && !!word && stderrTail.split("\n").some((l) => /not found/i.test(l) && word.test(l))) ||
+          (Platform.isWin && code === 9009) ||
+          // cmd.exe: "'x' is not recognized as an internal or external command"
+          (isWindows && code !== 0 && /is not recognized as an internal or external command/i.test(stderrTail) && !!word && word.test(stderrTail.replace(/['"]/g, " ")));
         resolve({ code: code === null ? (signal ? 1 : 0) : code, signal, timedOut, notFound, command: command.split(" ")[0], stderr: stderrTail });
       });
     });
@@ -982,8 +1064,12 @@ export default class TahoeRunPlugin extends Plugin {
     try {
       await kernel.ready;
     } catch (error) {
-      output.append("err", this.usePyodide ? `Couldn't start Python on this device: ${error.message}` : `Couldn't start Python (${this.pythonFor(block.sourcePath)}): ${error.message}`);
-      if (Platform.isWin && /code 9009\b/.test(error.message)) output.append("info", `\nWindows couldn't find ${this.pythonFor(block.sourcePath)}: exit code 9009 means "not found", and "python3" is often the Microsoft Store's placeholder. Install Python from python.org, then restart Obsidian, or set the Python command in Settings → Tahoe Run → Languages.`);
+      const python = this.pythonFor(block.sourcePath);
+      output.append("err", this.usePyodide ? `Couldn't start Python on this device: ${error.message}` : this.startFailure(python, error));
+      if (this.usePyodide) {
+        // nothing to choose on a phone
+      } else if (Platform.isWin && /code 9009\b/.test(error.message)) output.append("info", `\nWindows couldn't find ${python}: exit code 9009 means "not found", and "python3" is often the Microsoft Store's placeholder. Install Python from python.org, then restart Obsidian, or set the Python command in Settings → Tahoe Run → Languages.`);
+      else output.append("info", "\n\nChoose Python for this note… from the command palette, or set this computer's Python in Settings → Tahoe Run.");
       output.status = "error";
       output.duration = Date.now() - output.startedAt;
       output.kernelRef = null;
@@ -1011,6 +1097,14 @@ export default class TahoeRunPlugin extends Plugin {
     output.changed();
     this.updateStatus();
     this.inline.refresh(block.sourcePath);
+  }
+
+  // Why a kernel didn't start, and what to do about it.
+  startFailure(python, error) {
+    const message = String((error && error.message) || error);
+    const wsl = pylaunch.isWslPython(python);
+    const why = !/ENOENT/.test(message) ? message : wsl ? "WSL isn't installed (wsl.exe wasn't found). Install it with `wsl --install`, or choose a Windows Python." : `${python} wasn't found.`;
+    return `Couldn't start Python (${python}${wsl ? ", in WSL" : ""}): ${why}`;
   }
 
   /* ---------- with Tahoe Code ---------- */
@@ -1050,7 +1144,8 @@ export default class TahoeRunPlugin extends Plugin {
       else if (!DESKTOP || this.usePyodide) items = [];
       else {
         const before = ctx.earlier.length ? `${ctx.earlier.join("\n")}\n` : "";
-        items = await this.staticCompleter().complete(before + ctx.code, before.split("\n").length - 1 + ctx.line + 1, ctx.column, 1500, this.notePython(ctx.sourcePath));
+        const own = this.notePython(ctx.sourcePath);
+        items = await this.staticCompleter().complete(before + ctx.code, before.split("\n").length - 1 + ctx.line + 1, ctx.column, 1500, own && pylaunch.isWslPython(own) ? pylaunch.locate(own).python : own);
       }
       const dunder = (ctx.word || "").startsWith("_");
       return (items || []).filter((it) => it.type !== "keyword" && (dunder || !it.name.startsWith("__"))).map((it) => ({
@@ -1227,40 +1322,49 @@ export default class TahoeRunPlugin extends Plugin {
   async choosePython(file) {
     const noteDir = this.vaultFolder(file.path);
     const vaultDir = this.app.vault.adapter.getBasePath ? this.app.vault.adapter.getBasePath() : noteDir;
-    const notice = new Notice("Looking for Python environments…", 0);
+    const notice = new Notice(pylaunch.hasWsl() ? "Looking for Python environments, in Windows and WSL…" : "Looking for Python environments…", 0);
     let found = [];
+    let def = null;
     try {
-      found = await envs.findPythons(noteDir, vaultDir);
+      [found, def] = await Promise.all([envs.findPythons(noteDir, vaultDir), envs.probe(this.pythonCommand())]);
     } finally {
       notice.hide();
     }
     const current = this.notePython(file.path);
-    const def = await envs.probe(this.pythonCommand());
-    const items = [{ kind: "default", name: "Default", python: this.pythonCommand(), version: def ? def.version : "" }, ...found, { kind: "new", name: "New virtual environment…", python: "" }];
+    const items = [{ kind: "default", name: "This computer's default", python: this.pythonCommand(), version: def ? def.version : "", wsl: pylaunch.isWslPython(this.pythonCommand()) }, ...found, { kind: "new", name: "New virtual environment…", python: "" }];
     new PythonPicker(this.app, items, current, (item) => this.setNotePython(file, item)).open();
   }
 
+  // The choice is kept for this computer (see machine), so the same note can
+  // use a WSL venv on one computer and a Mac's venv on another.
   async setNotePython(file, item) {
     if (item.kind === "new") {
       new NameModal(this.app, "New virtual environment", "Name, e.g. robotics", async (name) => {
         name = name.trim().replace(/[^\w.-]+/g, "-");
         if (!name) return;
-        const dir = path.join(os.homedir(), ".virtualenvs", name);
         const base = this.pythonCommand();
-        const n = new Notice(`Creating ${envs.tilde(dir)}…`, 0);
-        const r = await envs.makeVenv(base, dir);
+        const target = await envs.newVenvPaths(base, name);
+        if (!target) return new Notice("Couldn't find WSL's home folder to make it in.");
+        const n = new Notice(`Creating ${target.shown}…`, 0);
+        const r = await envs.makeVenv(base, target.dir);
         n.hide();
         if (!r.ok) return new Notice(`Couldn't create it: ${r.message}`);
-        const python = envs.venvPython(dir, Platform.isWin);
-        const probed = await envs.probe(python);
-        await this.setNotePython(file, { kind: "venv", name, python, version: probed ? probed.version : "" });
+        const probed = await envs.probe(target.python);
+        await this.setNotePython(file, { kind: "venv", name, python: target.python, version: probed ? probed.version : "" });
       }).open();
       return;
     }
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      if (item.kind === "default") delete fm.python;
-      else fm.python = envs.tilde(item.python);
-    });
+    if (item.kind === "path") {
+      // Typed or pasted: a Python, or a virtual environment's folder.
+      const python = envs.pythonAt(item.python);
+      const probed = python && (await envs.probe(python));
+      if (!probed) return new Notice(`Couldn't run Python at ${item.python}${python && python !== item.python ? ` (${python})` : ""}.`);
+      item = { kind: "venv", name: python, python, version: probed.version };
+    }
+    const notes = this.machine.notes;
+    if (item.kind === "default") notes[file.path] = ""; // this computer's default, whatever python: says
+    else notes[file.path] = item.python;
+    await this.saveData(this.settings);
     // A running kernel keeps its Python: start again with the new one.
     const kernel = this.kernels.get(file.path);
     if (kernel && kernel.state !== "dead") {
@@ -1270,7 +1374,7 @@ export default class TahoeRunPlugin extends Plugin {
     if (this.staticPython) this.staticPython.warmed = false;
     this.updateStatus();
     this.refreshVariables();
-    new Notice(`Python for this note: ${item.name}${item.version ? ` (${item.version})` : ""}`);
+    new Notice(`Python for this note on this computer: ${item.name}${item.version ? ` (${item.version})` : ""}`);
   }
 
   // "No module named 'cv2'": install opencv-python into the note's Python, then run again.
@@ -1291,7 +1395,7 @@ export default class TahoeRunPlugin extends Plugin {
     output.status = r.ok ? "success" : "error";
     output.changed();
     if (!r.ok) {
-      if (r.managed) output.append("info", "\nThis Python doesn't allow pip installs (Homebrew's doesn't). Choose Python for this note → New virtual environment…, then install there.\n");
+      if (r.managed) output.append("info", "\nThis Python doesn't allow pip installs (Homebrew's and Ubuntu's don't). Choose Python for this note → New virtual environment…, then install there.\n");
       return;
     }
     const kernel = this.kernels.get(block.sourcePath());
@@ -1479,14 +1583,20 @@ export default class TahoeRunPlugin extends Plugin {
   /* ---------- tool detection (settings) ---------- */
 
   detect(def) {
+    if (def.id === "python") {
+      const python = this.pythonCommand();
+      return envs.probe(python).then((r) => ({ ok: !!r, where: r ? `${pylaunch.isWslPython(python) ? "WSL · " : ""}${python} · Python ${r.version}` : "", command: python }));
+    }
     const m = (def.compile || def.run).trim().match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
     const command = m ? m[1] || m[2] || m[3] : "";
     if (command.startsWith("{")) return Promise.resolve({ ok: true, where: "" });
     if (Platform.isWin) {
       return new Promise((resolve) => {
-        childProcess.execFile("where", [command], { env: Object.assign({}, process.env, { PATH: this.searchPath }), timeout: 4000 }, (error, stdout) => {
-          const where = String(stdout || "").split(/\r?\n/)[0].trim();
-          resolve({ ok: !error && !!where, where, command });
+        const done = (ok, where) => resolve({ ok, where, command });
+        if (/[\\/]/.test(command)) return done(fs.existsSync(command), command);
+        childProcess.execFile("where.exe", [command], { env: Object.assign({}, process.env, { PATH: this.searchPath }), timeout: 4000, windowsHide: true }, (error, stdout) => {
+          const first = String(stdout || "").split(/\r?\n/)[0].trim();
+          done(!error && !!first, first);
         });
       });
     }
@@ -1507,7 +1617,10 @@ function figureUrl(fig) {
 /* Small dialogs                                                             */
 /* ------------------------------------------------------------------------ */
 
-const KIND_LABEL = { default: "from settings", venv: "virtual environment", conda: "conda", pyenv: "pyenv", system: "installed", new: "" };
+const KIND_LABEL = { default: "from settings", venv: "virtual environment", conda: "conda", pyenv: "pyenv", system: "installed", new: "", path: "" };
+
+// Something typed into the picker that looks like a path, not a search.
+const LOOKS_LIKE_PATH = /^(?:~?[\\/]|[A-Za-z]:[\\/]|wsl:)/;
 
 class PythonPicker extends SuggestModal {
   constructor(app, items, current, onChoose) {
@@ -1515,12 +1628,15 @@ class PythonPicker extends SuggestModal {
     this.items = items;
     this.current = current;
     this.onChoose = onChoose;
-    this.setPlaceholder("Choose Python for this note");
+    this.setPlaceholder("Choose Python for this note, or paste a venv's path");
   }
 
   getSuggestions(query) {
     const q = query.toLowerCase();
-    return this.items.filter((i) => !q || `${i.name} ${i.python} ${i.version}`.toLowerCase().includes(q));
+    const matches = this.items.filter((i) => !q || `${i.name} ${i.python} ${i.version} ${i.wsl ? "wsl" : ""}`.toLowerCase().includes(q));
+    // A venv anywhere: paste its folder or its Python.
+    if (LOOKS_LIKE_PATH.test(query.trim())) matches.unshift({ kind: "path", name: `Use ${query.trim()}`, python: query.trim() });
+    return matches;
   }
 
   renderSuggestion(item, el) {
@@ -1529,7 +1645,10 @@ class PythonPicker extends SuggestModal {
     if (item.version) top.createSpan({ cls: "tahoe-run-pick-version", text: `Python ${item.version}` });
     const chosen = item.kind === "default" ? !this.current : this.current && item.python === this.current;
     if (chosen) top.createSpan({ cls: "tahoe-run-pick-check", text: "✓" });
-    const sub = [KIND_LABEL[item.kind], item.python ? envs.tilde(item.python) : item.kind === "new" ? "Makes ~/.virtualenvs/<name> from the default Python, so pip can install into it" : ""].filter(Boolean).join(" · ");
+    const sub =
+      item.kind === "path"
+        ? "A Python, or a virtual environment's folder"
+        : [item.wsl ? "WSL" : "", KIND_LABEL[item.kind], item.python ? envs.tilde(item.python) : item.kind === "new" ? "Makes ~/.virtualenvs/<name> from the default Python, so pip can install into it" : ""].filter(Boolean).join(" · ");
     if (sub) el.createDiv({ cls: "tahoe-run-pick-sub", text: sub });
   }
 
@@ -1644,6 +1763,118 @@ class TahoeRunSettingTab extends PluginSettingTab {
     }
   }
 
+  // Where Python is on this computer: kept per computer (plugin.machine), since a
+  // synced vault's settings are shared with its other computers.
+  pythonSection(containerEl) {
+    const plugin = this.plugin;
+    const m = plugin.machine;
+    new Setting(containerEl).setName("Python on this computer").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `These are kept for this computer (${plugin.machineId}) only, so a vault synced to your other computers uses their own Pythons there. Choose Python for this note… (command palette) is kept per computer too.`,
+    });
+
+    const python = new Setting(containerEl).setName("Python");
+    const status = python.descEl.createDiv({ cls: "tahoe-run-detect" });
+    const check = async () => {
+      status.empty();
+      status.setText("Checking…");
+      const cmd = plugin.pythonCommand();
+      const r = await envs.probe(cmd);
+      status.empty();
+      status.createSpan({ cls: `tahoe-run-dot ${r ? "is-ok" : "is-missing"}` }).setAttr("aria-hidden", "true");
+      status.createSpan({ text: r ? `Python ${r.version}${pylaunch.isWslPython(cmd) ? ", in WSL" : ""} · ${cmd}` : `${cmd} didn't start${pylaunch.isWslPython(cmd) ? " in WSL" : ""}` });
+    };
+    python.descEl.createDiv({
+      text: Platform.isWin
+        ? "Notes without a Python of their own use this one: a path to python.exe, a WSL path (/home/you/env/bin/python), or a command such as python3. Empty: the command in Languages → Python."
+        : "Notes without a Python of their own use this one: a path, or a command such as python3. Empty: the command in Languages → Python.",
+    });
+    let field;
+    python.addText((t) => {
+      field = t;
+      t.setPlaceholder((plugin.resolve("python").run || "python3").trim().split(/\s+/)[0])
+        .setValue(m.python);
+      // On Enter or leaving the field, not each key: a change restarts the kernels.
+      t.inputEl.addEventListener("change", async () => {
+        const v = t.getValue();
+        const value = v.trim() ? envs.pythonAt(v) || v.trim() : "";
+        if (value === m.python) return;
+        if (value !== v.trim()) t.setValue(value);
+        await plugin.saveMachine({ python: value });
+        check();
+      });
+      t.inputEl.addClass("tahoe-run-wide-input");
+    });
+    python.addButton((b) =>
+      b.setButtonText("Find…").onClick(async () => {
+        const vault = plugin.app.vault.adapter.getBasePath ? plugin.app.vault.adapter.getBasePath() : os.homedir();
+        const notice = new Notice("Looking for Python environments…", 0);
+        let found = [];
+        try {
+          found = await envs.findPythons(vault, vault);
+        } finally {
+          notice.hide();
+        }
+        new PythonPicker(this.app, found, m.python, async (item) => {
+          const value = item.kind === "path" ? envs.pythonAt(item.python) : item.python;
+          if (!value) return new Notice(`No Python at ${item.python}`);
+          field.setValue(value);
+          await plugin.saveMachine({ python: value });
+          check();
+        }).open();
+      })
+    );
+    check();
+
+    if (Platform.isWin) {
+      const has = pylaunch.hasWsl();
+      new Setting(containerEl)
+        .setName("Run Python in WSL")
+        .setDesc(
+          has
+            ? "Python runs inside WSL (Linux), so the virtual environments you made there work, as in VS Code's WSL mode. With this on, a command like python3 is WSL's. A path that starts with / always runs in WSL."
+            : "WSL isn't installed on this computer. Install it with `wsl --install` to run Python and its virtual environments in Linux."
+        )
+        .addToggle((t) => {
+          t.setValue(m.wsl && has).setDisabled(!has);
+          t.onChange(async (v) => {
+            await plugin.saveMachine({ wsl: v });
+            check();
+            this.display();
+          });
+        });
+      if (has) {
+        const distro = new Setting(containerEl).setName("WSL distribution").setDesc("Which Linux runs Python.");
+        distro.addDropdown((d) => {
+          d.addOption("", "Default");
+          if (m.distro) d.addOption(m.distro, m.distro);
+          d.setValue(m.distro).onChange(async (v) => {
+            await plugin.saveMachine({ distro: v });
+            check();
+          });
+          pylaunch.wslDistros().then((names) => {
+            for (const n of names) if (n !== m.distro) d.addOption(n, n);
+            d.setValue(m.distro);
+          });
+        });
+      }
+    }
+
+    const chosen = Object.keys(m.notes).length;
+    if (chosen) {
+      new Setting(containerEl)
+        .setName("Notes with their own Python here")
+        .setDesc(`${chosen} ${chosen === 1 ? "note has" : "notes have"} a Python chosen on this computer. Reset to use the default above (or their python: property).`)
+        .addButton((b) =>
+          b.setButtonText("Reset").onClick(async () => {
+            await plugin.saveMachine({ notes: {} });
+            this.display();
+          })
+        );
+    }
+  }
+
   // iPhone and iPad: only what applies there.
   displayMobile(containerEl, s, save) {
     this.pyodideSection(containerEl);
@@ -1706,6 +1937,8 @@ class TahoeRunSettingTab extends PluginSettingTab {
           .setValue(s.showButton)
           .onChange(async (v) => ((s.showButton = v), save()))
       );
+
+    this.pythonSection(containerEl);
 
     new Setting(containerEl).setName("Notebook").setHeading();
 

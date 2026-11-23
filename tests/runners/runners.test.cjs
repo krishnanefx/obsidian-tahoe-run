@@ -132,14 +132,15 @@ test("Objective-C: Foundation, with NSLog on stderr", async () => {
 
 test("Swift: runs, and a type error links to its line", async () => {
   await needs("swift");
-  const good = await runBlock("swift", "let xs = [3, 1, 2]\nprint(xs.sorted())");
+  // swift's first run on a fresh CI machine can take more than the usual 20 s.
+  const good = await runBlock("swift", "let xs = [3, 1, 2]\nprint(xs.sorted())", { timeout: 60 });
   eq([good.status, streams(good, "out")], ["success", "[1, 2, 3]\n"]);
-  const bad = await runBlock("swift", 'let a = 1\nlet b: Int = "two"\nprint(a + b)');
+  const bad = await runBlock("swift", 'let a = 1\nlet b: Int = "two"\nprint(a + b)', { timeout: 60 });
   eq(bad.status, "error");
   match(bad.text(), /main\.swift:2:14: error/);
   eq(lines(bad)[0], [2, 14]);
   noTempPaths(bad);
-});
+}, { timeout: 150000 });
 
 test("Rust: compiles and runs", async () => {
   await needs("rust");
