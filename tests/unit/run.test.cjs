@@ -2753,4 +2753,22 @@ test("plugin: Run blocks above the cursor runs those that can run, in order, and
   eq(ran, ["N.md::0", "N.md::3"], "skips the diagram and the eval: false block, stops before the block the cursor is in");
 });
 
+test("plugin: Run the last block again reads the block as it is in the note now", async () => {
+  const vault = new FakeVault();
+  vault.put("N.md", "```python\nx = 2\n```");
+  const p = await makePlugin({ vault });
+  const ran = [];
+  const real = p.run.bind(p);
+  p.run = async (b) => (ran.push(b.code), real === null ? 0 : undefined);
+  const cmd = command(p, "rerun-last-block");
+  eq(cmd.checkCallback(true), false, "nothing has run yet");
+  p.lastRun = { key: "N.md::0", lang: "python", ordinal: 0, code: "x = 1", sourcePath: "N.md" };
+  eq(cmd.checkCallback(true), true);
+  await p.rerunLast();
+  eq(ran, ["x = 2"]);
+  vault.put("N.md", "```js\ny\n```");
+  await p.rerunLast();
+  eq(ran, ["x = 2", "x = 1"], "the block is a different one now: as it ran");
+});
+
 h.run({ title: "Tahoe Run unit tests" });

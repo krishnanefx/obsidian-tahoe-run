@@ -406,6 +406,17 @@ export default class TahoeRunPlugin extends Plugin {
       },
     });
     this.addCommand({
+      id: "rerun-last-block",
+      name: "Run the last block again",
+      checkCallback: (checking) => {
+        const last = this.lastRun;
+        const output = last && this.outputs.get(last.key);
+        if (!last || (output && output.status === "running")) return false;
+        if (!checking) this.rerunLast();
+        return true;
+      },
+    });
+    this.addCommand({
       id: "stop-all",
       name: "Stop all running code",
       callback: () => this.outputs.forEach((o) => this.stop(o)),
@@ -847,6 +858,19 @@ export default class TahoeRunPlugin extends Plugin {
     }
   }
 
+  // The last block that ran, as it reads in the note now (or as it ran, if the note changed).
+  async rerunLast() {
+    const last = this.lastRun;
+    if (!last) return;
+    const file = this.app.vault.getAbstractFileByPath(last.sourcePath);
+    let code = last.code;
+    if (file && file.extension) {
+      const now = findCodeBlocks((await this.app.vault.cachedRead(file)).split("\n"))[last.ordinal];
+      if (now && now.lang === last.lang) code = now.code;
+    }
+    await this.run(Object.assign({}, last, { code }));
+  }
+
   /* ---------- running ---------- */
 
   async run(block) {
@@ -854,6 +878,7 @@ export default class TahoeRunPlugin extends Plugin {
     if (!def) return;
     const output = this.outputFor(block.key);
     if (output.status === "running") return;
+    this.lastRun = block;
     // On Windows, wait for the search for a working Python, then use what it found.
     if (def.id === "python" && Platform.isWin && this.pythonFound) def = (await this.pythonFound, this.resolve(block.lang));
     if (def.id === "python" && (this.settings.kernel || this.usePyodide)) await this.runInKernel(block, def, output);
